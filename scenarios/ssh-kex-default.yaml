@@ -1,0 +1,70 @@
+id: ssh-kex-default
+title: "SSH: hybrid ML-KEM key exchange by default (OpenSSH 10.4)"
+protocol: ssh
+stack: ssh
+pillar: key-exchange
+group: ssh
+order: 10
+summary: >
+  Zero configuration. OpenSSH 10.x prefers mlkem768x25519-sha256, and you can prove it
+  from the cleartext KEXINIT messages: the client lists it first and the server
+  supports it, so RFC 4253's rule picks it. Host and user keys stay classical Ed25519.
+upstream_lab: learn/ssh
+nodes:
+  server: pqcw-ssh-server
+  client: pqcw-ssh-client
+endpoints:
+  left:  {name: Client, ip: 172.33.0.3}
+  right: {name: Server, ip: 172.33.0.2}
+capture:
+  agent: pqcw-cap-ssh
+  host: ssh-server
+  bpf: "tcp port 22"
+declared:
+  key_exchange: pq-hybrid
+  authentication: classical
+  authentication_algorithm: Ed25519
+steps:
+  - id: keys
+    title: Mint Ed25519 host and user keys
+    exec:
+      - {node: server, cmd: "sh /pqcw/ssh-keys.sh ed25519", timeout: 30}
+  - id: sshd
+    title: Start sshd
+    exec:
+      - {node: server, cmd: "pkill -f 'sshd -D' ; sleep 0.3; true"}
+      - {node: server, detach: true, cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config > /tmp/sshd.log 2>&1"}
+  - id: sshd-ready
+    title: Wait for the listener
+    action: wait_for
+    wait_for: {node: server, cmd: "ss -ltn", regex: "172.33.0.2:22"}
+  - id: kex-list
+    title: List the key exchanges this OpenSSH supports
+    exec:
+      - {node: client, cmd: "ssh -V 2>&1; ssh -Q kex"}
+    expect: {regex: "mlkem768x25519-sha256"}
+  - id: capture-start
+    title: Start capturing on the server's interface
+    action: capture_start
+  - id: connect
+    title: Connect and run one command
+    narration: "Nothing in ssh_config asks for post-quantum. Look for 'kex: algorithm: mlkem768x25519-sha256'."
+    exec:
+      - {node: client, cmd: "install -m 600 /pqcw/ssh_config /tmp/ssh_config && ssh -F /tmp/ssh_config -v pqc-server 'echo PQC-OK; uname -sr' 2>&1", timeout: 20}
+    expect: {regex: "PQC-OK"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: stop-sshd
+    title: Stop sshd
+    exec:
+      - {node: server, cmd: "pkill -f 'sshd -D'; true"}
+assertions:
+  - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: mlkem768x25519-sha256},
+     description: "Derived from both cleartext KEXINITs"}
+  - {id: kex-endpoint, kind: step_output, expect: {step: connect, regex: "kex: algorithm: mlkem768x25519-sha256"}}
+  - {id: hostkey-classical, kind: ssh.negotiated_host_key, expect: {contains: ed25519}}
+expected_numbers:
+  client_kex_init_payload_bytes: "1216 (32 X25519 + 1184 ML-KEM-768 key)"
+  server_kex_reply_payload_bytes: "1120 + host key + signature"

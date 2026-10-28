@@ -1,0 +1,82 @@
+id: ipsec-kex-classical
+title: "IKEv2 classical baseline: X25519 only"
+protocol: ipsec
+stack: ipsec
+pillar: key-exchange
+group: ipsec-kex
+order: 10
+summary: >
+  The baseline every PQC comparison is measured against. A plain IKEv2 tunnel with
+  X25519 Diffie-Hellman: two messages in IKE_SA_INIT, two in IKE_AUTH, nothing
+  post-quantum. Anyone recording these packets today can decrypt the ESP traffic
+  once a cryptographically relevant quantum computer exists (harvest now, decrypt later).
+upstream_lab: learn/ipsec/key-exchange
+learn_more:
+  - https://blogs.cisco.com/developer/ml-kem-vs-diffie-hellman-the-showdown-ipsec-series-part-3
+nodes:
+  initiator: pqcw-ipsec-initiator
+  responder: pqcw-ipsec-responder
+endpoints:
+  left:  {name: Initiator, ip: 172.30.0.2}
+  right: {name: Responder, ip: 172.30.0.3}
+capture:
+  agent: pqcw-cap-ipsec
+  host: ipsec-responder
+  bpf: "udp port 500 or udp port 4500 or esp or icmp"
+declared:
+  key_exchange: classical
+  authentication: classical
+  authentication_algorithm: PSK
+steps:
+  - id: reset
+    title: Clear any previous tunnel
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force >/dev/null 2>&1; true", timeout: 15}
+  - id: load
+    title: Load the classical posture on both peers
+    narration: Both peers now propose aes256gcm16-prfsha256-x25519 and nothing else.
+    exec:
+      - {node: responder, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/classical.conf]}
+      - {node: initiator, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/classical.conf]}
+  - id: capture-start
+    title: Start capturing on the responder's interface
+    action: capture_start
+  - id: initiate
+    title: Initiate the tunnel
+    narration: IKE_SA_INIT (X25519 public keys) then IKE_AUTH (PSK proof + first CHILD_SA).
+    exec:
+      - {node: initiator, cmd: [swanctl, --initiate, --child, pqc-child, --timeout, "20"], timeout: 30}
+    expect: {regex: "initiate completed successfully"}
+  - id: dataplane
+    title: Ping through the tunnel
+    narration: Three pings become six ESP packets. No ICMP is visible on the wire.
+    exec:
+      - {node: initiator, cmd: [ping, -c, "3", -W, "2", 172.30.0.3]}
+  - id: list-sas
+    title: Show the negotiated IKE SA
+    exec:
+      - {node: initiator, cmd: [swanctl, --list-sas]}
+    expect: {regex: "CURVE_25519"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: terminate
+    title: Tear the tunnel down
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force; true"}
+assertions:
+  - {id: no-addke, kind: ikev2.selected_additional_ke, expect: {none: true},
+     description: "Responder selected no additional key exchange"}
+  - {id: no-intermediate, kind: ikev2.exchange_count, expect: {exchange: IKE_INTERMEDIATE, max: 0}}
+  - {id: two-sa-init, kind: ikev2.exchange_count, expect: {exchange: IKE_SA_INIT, min: 2, max: 2}}
+  - {id: esp, kind: count, expect: {proto: ESP, min: 6}}
+  - {id: no-cleartext-icmp, kind: count, expect: {proto: ICMP, max: 0}}
+  - {id: endpoint-classical, kind: step_output, expect: {step: list-sas, regex: "KE1_ML_KEM", absent: true}}
+expected_numbers:
+  ike_messages: 4
+  note: "Two round trips. Compare bytes and frames against the hybrid run."
+  observed: "observed (2026-10-29, strongSwan 6.0 ml plugin, frame bytes incl. 42 B Ethernet/IP/UDP)"
+  handshake_frames: 4
+  handshake_bytes: 1098
+  esp_frames_for_3_pings: 6

@@ -1,0 +1,102 @@
+# MACsec / 802.1X EAP-TLS stack (profile: macsec).
+#
+# MACsec's whole quantum exposure is the EAP-TLS handshake that produces the
+# MSK -> CAK -> SAK chain, so this stack shows both pillars in one TLS 1.3
+# handshake carried in EAPOL (ethertype 0x888e):
+#   key exchange    X25519MLKEM768 in the EAP-TLS ClientHello/ServerHello
+#   authentication  ECDSA vs ML-DSA EAP certificates (3-4x more EAPOL frames)
+#   downgrade       hostapd without tls_flags -> silent TLS 1.2, still "success"
+#
+# Topology (from upstream): the supplicant and the capture agent share the
+# authenticator's network namespace; the upstream entrypoint creates a veth pair
+# aut <-> sup inside it. A Docker bridge would filter the PAE group address
+# 01:80:c2:00:00:03, a point-to-point veth does not.
+#
+# The data plane (kernel MACsec, ethertype 0x88e5) needs CONFIG_MACSEC on the
+# Docker host kernel; Docker Desktop's LinuxKit kernel lacks it. `make preflight`
+# tells you. The handshake scenarios work everywhere.
+
+x-macsec-node: &macsec-node
+  build:
+    context: ../../vendor/juliogomez-pqc/learn/docker
+    dockerfile: Dockerfile.macsec
+  image: pqcw/hostap:2.12-tls13
+  profiles: ["macsec"]
+  cap_add: [NET_ADMIN, NET_RAW]
+  security_opt: [no-new-privileges:true]
+
+services:
+  macsec-authenticator:
+    <<: *macsec-node
+    container_name: pqcw-macsec-authenticator
+    hostname: macsec-authenticator
+    environment:
+      MACSEC_ROLE: authenticator
+    volumes:
+      - ./config/authenticator:/pqcw/cfg:ro
+      - ../tls/tls-pki.sh:/pqcw/tls-pki.sh:ro
+      - pqcw_macsec_pki:/pki
+    networks:
+      macsec_net:
+        ipv4_address: 172.34.0.2
+      pqcw_mgmt:
+    healthcheck:
+      test: ["CMD", "ip", "link", "show", "sup"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 2s
+
+  macsec-supplicant:
+    <<: *macsec-node
+    container_name: pqcw-macsec-supplicant
+    network_mode: "service:macsec-authenticator"
+    environment:
+      MACSEC_ROLE: supplicant
+    volumes:
+      - ./config/supplicant:/pqcw/cfg:ro
+      - pqcw_macsec_pki:/pki:ro
+    depends_on:
+      macsec-authenticator:
+        condition: service_healthy
+
+  cap-macsec:
+    image: pqcw/capture-agent:latest
+    build:
+      context: ../../capture-agent
+    container_name: pqcw-cap-macsec
+    profiles: ["macsec"]
+    network_mode: "service:macsec-authenticator"
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    env_file:
+      - path: ../../.env
+        required: false  # PQCW_AGENT_TOKEN
+    environment:
+      AGENT_NAME: cap-macsec
+      CAPTURE_IFACE: aut            # explicit: EAPOL never touches an IP subnet
+      MGMT_SUBNET: 172.29.0.0/24
+      CAPTURE_DIR: /captures
+    volumes:
+      - pqcw_captures:/captures
+    depends_on:
+      macsec-authenticator:
+        condition: service_healthy
+
+networks:
+  macsec_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.34.0.0/24
+  pqcw_mgmt:
+    external: true
+    name: pqcw_mgmt
+
+volumes:
+  pqcw_captures:
+    external: true
+    name: pqcw_captures
+  pqcw_macsec_pki:
+    name: pqcw_macsec_pki

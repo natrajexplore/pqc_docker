@@ -1,0 +1,29 @@
+# PQC WireScope - sshd config (adapted from juliogomez/pqc learn/ssh, MIT).
+# Started by the orchestrator, in the foreground, detached from the exec:
+#   /usr/local/sbin/sshd -D -e -f /pqcw/sshd_config [-o HostKeyAlgorithms=...]
+# Post-quantum auth is enabled per run with -o flags rather than by editing
+# this file, so the same config serves every scenario.
+
+Port 22
+ListenAddress 172.33.0.2
+
+# Keys live in a named volume whose ownership does not match sshd's strict
+# expectations; relax the checks (lab only).
+StrictModes no
+
+HostKey /keys/server/ssh_host_key
+PidFile /run/sshd.pid
+LogLevel VERBOSE
+
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthorizedKeysFile /keys/server/authorized_keys
+
+# No forwarding of any kind - this server exists only to complete a handshake
+# and run one harmless command.
+AllowTcpForwarding no
+X11Forwarding no
+AllowAgentForwarding no
+PermitTunnel no
+AllowUsers labuser

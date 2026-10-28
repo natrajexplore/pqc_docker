@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make test*)",
+      "Bash(make lint*)",
+      "Bash(make preflight*)",
+      "Bash(make ps*)",
+      "Bash(make logs*)",
+      "Bash(docker compose ps*)",
+      "Bash(docker compose logs*)",
+      "Bash(docker compose exec backend tshark*)",
+      "Bash(curl -s 127.0.0.1:*)",
+      "Bash(cd backend && python -m pytest*)",
+      "Bash(cd frontend && npm run*)",
+      "Bash(git status*)",
+      "Bash(git diff*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Bash(cat .env*)",
+      "Bash(docker run --privileged*)",
+      "Bash(git push --force*)"
+    ]
+  }
+}

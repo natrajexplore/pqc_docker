@@ -1,0 +1,33 @@
+# Secrets and generated lab material - never commit
+.env
+*.key
+*.pem
+*.p12
+*.keylog
+captures/
+pki/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Packet captures (keep only curated test fixtures)
+*.pcap
+*.pcapng
+!backend/tests/fixtures/*.pcapng
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local archive of the project (not source)
+pqc-wirescope.zip

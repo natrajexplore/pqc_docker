@@ -1,0 +1,15 @@
+# PQC WireScope - ssh client config (adapted from juliogomez/pqc learn/ssh, MIT).
+# Used as:  ssh -F /pqcw/ssh_config pqc-server '<command>'
+# Scenarios add -o KexAlgorithms=... (downgrade) or the composite-key
+# -o HostKeyAlgorithms/PubkeyAcceptedAlgorithms (post-quantum auth).
+
+Host pqc-server
+    HostName 172.33.0.2
+    User labuser
+    IdentityFile /keys/client/id_key
+    IdentitiesOnly yes
+    UserKnownHostsFile /keys/client/known_hosts
+    GlobalKnownHostsFile /dev/null
+    StrictHostKeyChecking yes
+    BatchMode yes
+    ConnectTimeout 10

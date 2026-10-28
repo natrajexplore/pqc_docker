@@ -1,0 +1,100 @@
+id: macsec-eaptls-mldsa44
+title: "MACsec / 802.1X: EAP-TLS 1.3, both pillars post-quantum (ML-DSA-44)"
+protocol: macsec
+stack: macsec
+pillar: both
+group: macsec
+order: 20
+summary: >
+  Same EAP-TLS 1.3 handshake, now with ML-DSA-44 certificates for the EAP server and
+  the supplicant. EAP's small MTU makes the certificate cost unusually visible:
+  ~1.4 KB fragments, each acknowledged by an empty frame, in both directions.
+  Upstream measured 42 EAPOL frames instead of 14. ML-DSA EAP certificates are still
+  an open question on IOS XE 26.2 - here they just work.
+upstream_lab: learn/macsec
+nodes:
+  authenticator: pqcw-macsec-authenticator
+  supplicant: pqcw-macsec-supplicant
+endpoints:
+  left:  {name: Supplicant, mac: "${sup_mac}"}
+  right: {name: Authenticator, mac: "${aut_mac}"}
+capture:
+  agent: pqcw-cap-macsec
+  host: macsec-authenticator
+  bpf: "ether proto 0x888e or ether proto 0x88e5"
+declared:
+  key_exchange: pq-hybrid
+  authentication: pq
+  authentication_algorithm: ML-DSA-44 (EAP server + supplicant)
+steps:
+  - id: pki
+    title: Mint ML-DSA-44 EAP certificates
+    exec:
+      - {node: authenticator, cmd: "sh /pqcw/tls-pki.sh gen ml-dsa-44 && sh /pqcw/tls-pki.sh activate ml-dsa-44 && sh /pqcw/tls-pki.sh sizes ml-dsa-44", timeout: 60}
+  - id: sup-mac
+    title: Learn the supplicant port MAC
+    action: resolve
+    var: sup_mac
+    exec:
+      - {node: authenticator, cmd: [cat, /sys/class/net/sup/address]}
+  - id: aut-mac
+    title: Learn the authenticator port MAC
+    action: resolve
+    var: aut_mac
+    exec:
+      - {node: authenticator, cmd: [cat, /sys/class/net/aut/address]}
+  - id: reset
+    title: Stop any previous 802.1X daemons
+    exec:
+      - {node: authenticator, cmd: "pkill hostapd; true"}
+      - {node: supplicant, cmd: "pkill wpa_supplicant; rm -f /tmp/wpa.log; true"}
+  - id: hostapd
+    title: Start hostapd (EAP-TLS server, TLS 1.3 enabled)
+    exec:
+      - {node: authenticator, detach: true, cmd: "hostapd -dd /pqcw/cfg/hostapd-tls13.conf > /tmp/hostapd.log 2>&1"}
+  - id: hostapd-ready
+    title: Wait for the authenticator port to come up
+    action: wait_for
+    wait_for: {node: authenticator, cmd: "grep -a -E 'AP-ENABLED|interface state .*ENABLED' /tmp/hostapd.log || true", regex: "ENABLED", timeout: 10}
+  - id: capture-start
+    title: Start capturing EAPOL on the aut port
+    action: capture_start
+  - id: supplicant
+    title: Start wpa_supplicant (EAP-TLS peer)
+    narration: Watch the ladder fill with fragment / ACK pairs as the ML-DSA certificates cross the link.
+    exec:
+      - {node: supplicant, detach: true, cmd: "wpa_supplicant -Dwired -isup -c /pqcw/cfg/wpa_supplicant.conf -t -dd > /tmp/wpa.log 2>&1"}
+  - id: eap-result
+    title: Wait for EAP success
+    action: wait_for
+    wait_for: {node: supplicant, cmd: "grep -a -E 'CTRL-EVENT-EAP-(SUCCESS|FAILURE)' /tmp/wpa.log || true", regex: "CTRL-EVENT-EAP-SUCCESS", timeout: 30}
+  - id: milestones
+    title: Pull the milestones from the supplicant log
+    exec:
+      - {node: supplicant, cmd: "grep -aE 'CTRL-EVENT-EAP-METHOD|Using TLS version|more fragments will follow|CTRL-EVENT-EAP-SUCCESS' /tmp/wpa.log | uniq -c"}
+  - id: cert-info
+    title: Inspect the supplicant certificate
+    exec:
+      - {node: supplicant, cmd: "openssl x509 -in /pki/active/client.crt -noout -text | grep -m1 'Public Key Algorithm'"}
+  - id: settle
+    title: Let the last EAPOL frames land
+    action: sleep
+    seconds: 1
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: stop-daemons
+    title: Stop hostapd and wpa_supplicant
+    exec:
+      - {node: supplicant, cmd: "pkill wpa_supplicant; true"}
+      - {node: authenticator, cmd: "pkill hostapd; true"}
+assertions:
+  - {id: group, kind: tls.server_group, expect: {group: X25519MLKEM768}}
+  - {id: version, kind: tls.version, expect: {version: "TLS 1.3"}}
+  - {id: frames, kind: eap.frames, expect: {min: 28},
+     description: "ML-DSA certificates triple the EAPOL frame count (upstream: 42)"}
+  - {id: auth-cert, kind: step_output, expect: {step: cert-info, regex: "(?i)ML-DSA-44"}}
+expected_numbers:
+  eapol_frames: 42
+  client_tls_fragments: 8

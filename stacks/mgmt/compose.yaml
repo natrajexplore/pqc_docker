@@ -1,0 +1,104 @@
+# Management plane: the web UI, the API/orchestrator, and a locked-down proxy in
+# front of the Docker socket. Always on (no profile).
+#
+# The shared network and capture volume are created by `make network` (called by
+# `make up`) and are declared external in every stack, because Compose `include:`
+# does not let several included files co-own one network definition.
+
+services:
+  # The backend never touches /var/run/docker.sock directly. This proxy exposes
+  # only the endpoints the orchestrator needs (list/inspect containers, exec,
+  # start/stop) and refuses everything else (images, volumes, networks, build,
+  # swarm, secrets...). Socket access is root-equivalent on the host, so this is
+  # the single most important hardening step in the project.
+  socket-proxy:
+    # Pinned by digest (v0.5.0, verified on Docker Hub 2026-10-29). Bump deliberately.
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: pqcw-socket-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      EXEC: 1
+      POST: 1          # exec create/start are POSTs
+      INFO: 1
+      VERSION: 1
+      # everything else stays 0 (the image default)
+      IMAGES: 0
+      NETWORKS: 0
+      VOLUMES: 0
+      BUILD: 0
+      SECRETS: 0
+      SWARM: 0
+      SYSTEM: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Not read_only: the proxy renders its haproxy config at start-up.
+    security_opt: [no-new-privileges:true]
+    # NOT on pqcw_mgmt: every lab node has a leg there, and none of them may reach
+    # the Docker API. Only the backend shares this internal network.
+    networks:
+      pqcw_dockerapi:
+
+  backend:
+    build:
+      context: ../../backend
+    container_name: pqcw-backend
+    restart: unless-stopped
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      DOCKER_HOST: tcp://socket-proxy:2375
+      PQCW_SCENARIO_DIR: /app/scenarios
+      PQCW_CAPTURE_DIR: /captures
+      PQCW_PROJECT: pqcw
+    volumes:
+      - ../../scenarios:/app/scenarios:ro
+      - pqcw_captures:/captures
+    depends_on:
+      - socket-proxy
+    networks:
+      pqcw_mgmt:
+        ipv4_address: 172.29.0.10
+      pqcw_dockerapi:
+    # Only the frontend talks to the backend; nothing is published to the host.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  frontend:
+    build:
+      context: ../../frontend
+    container_name: pqcw-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    # Published on loopback only. Use an SSH tunnel or a reverse proxy with auth
+    # if you need it from another machine; never bind this to 0.0.0.0.
+    ports:
+      - "127.0.0.1:${PQCW_UI_PORT:-8080}:8080"
+    networks:
+      pqcw_mgmt:
+        ipv4_address: 172.29.0.11
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  pqcw_mgmt:
+    external: true
+    name: pqcw_mgmt
+  # backend <-> socket-proxy only. internal: no route off the host.
+  pqcw_dockerapi:
+    name: pqcw_dockerapi
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.35.0.0/29
+
+volumes:
+  pqcw_captures:
+    external: true
+    name: pqcw_captures

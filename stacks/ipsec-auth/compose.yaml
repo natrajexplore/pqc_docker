@@ -1,0 +1,97 @@
+# IKEv2 mutual-authentication stack (profile: ipsec-auth).
+#
+# Image: the upstream lab's EXPERIMENTAL strongSwan `ml-dsa` branch build
+# (Dockerfile.mldsa), which adds ML-DSA signature authentication on top of the
+# ML-KEM key exchange. Pin ML_DSA_REF to a commit hash for reproducibility once
+# you have a build that works (see docs/IMPLEMENTATION_PLAN.md, phase 2).
+#
+# Credentials: pki.sh mints a CA + initiator/responder leaf certs per algorithm
+# into the named volume pqcw_ipsec_pki (never into the repo), then installs the
+# chosen set into each peer's swanctl credential directories. The swanctl.conf is
+# identical for ECDSA, ML-DSA-44 and ML-DSA-65; only the installed certs change.
+
+x-ipsec-auth-node: &ipsec-auth-node
+  build:
+    context: ../../vendor/juliogomez-pqc/learn/docker
+    dockerfile: Dockerfile.mldsa
+    args:
+      ML_DSA_REF: ${PQCW_STRONGSWAN_MLDSA_REF:-ml-dsa}
+  image: pqcw/strongswan:ml-dsa
+  profiles: ["ipsec-auth"]
+  cap_add: [NET_ADMIN, NET_RAW]
+  security_opt: [no-new-privileges:true]
+  entrypoint: ["/bin/bash", "/pqcw/entrypoint-wrapper.sh"]
+  env_file:
+    - path: ../../.env
+      required: false
+
+services:
+  ipsec-auth-responder:
+    <<: *ipsec-auth-node
+    container_name: pqcw-ipsec-auth-responder
+    hostname: ipsec-auth-responder
+    volumes:
+      - ../ipsec/entrypoint-wrapper.sh:/pqcw/entrypoint-wrapper.sh:ro
+      - ./config/responder/swanctl.conf:/usr/local/etc/swanctl/swanctl.conf:ro
+      - ./pki.sh:/pqcw/pki.sh:ro
+      - pqcw_ipsec_pki:/pki
+    networks:
+      ipsec_auth:
+        ipv4_address: 172.31.0.3
+      pqcw_mgmt:
+
+  ipsec-auth-initiator:
+    <<: *ipsec-auth-node
+    container_name: pqcw-ipsec-auth-initiator
+    hostname: ipsec-auth-initiator
+    volumes:
+      - ../ipsec/entrypoint-wrapper.sh:/pqcw/entrypoint-wrapper.sh:ro
+      - ./config/initiator/swanctl.conf:/usr/local/etc/swanctl/swanctl.conf:ro
+      - ./pki.sh:/pqcw/pki.sh:ro
+      - pqcw_ipsec_pki:/pki
+    networks:
+      ipsec_auth:
+        ipv4_address: 172.31.0.2
+      pqcw_mgmt:
+    depends_on:
+      - ipsec-auth-responder
+
+  cap-ipsec-auth:
+    image: pqcw/capture-agent:latest
+    build:
+      context: ../../capture-agent
+    container_name: pqcw-cap-ipsec-auth
+    profiles: ["ipsec-auth"]
+    network_mode: "service:ipsec-auth-responder"
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    env_file:
+      - path: ../../.env
+        required: false  # PQCW_AGENT_TOKEN
+    environment:
+      AGENT_NAME: cap-ipsec-auth
+      LAB_SUBNET: 172.31.0.0/24
+      MGMT_SUBNET: 172.29.0.0/24
+      CAPTURE_DIR: /captures
+    volumes:
+      - pqcw_captures:/captures
+    depends_on:
+      - ipsec-auth-responder
+
+networks:
+  ipsec_auth:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+  pqcw_mgmt:
+    external: true
+    name: pqcw_mgmt
+
+volumes:
+  pqcw_captures:
+    external: true
+    name: pqcw_captures
+  pqcw_ipsec_pki:
+    name: pqcw_ipsec_pki

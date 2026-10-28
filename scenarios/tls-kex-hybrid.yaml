@@ -1,0 +1,78 @@
+id: tls-kex-hybrid
+title: "TLS 1.3 hybrid key exchange: X25519MLKEM768"
+protocol: tls
+stack: tls
+pillar: key-exchange
+group: tls-kex
+order: 20
+summary: >
+  OpenSSL 3.5 negotiates X25519MLKEM768 (group 0x11ec) out of the box. Unlike IKEv2
+  there is no extra round trip: the 1216-byte hybrid key share rides in the same
+  ClientHello and the 1120-byte reply in the same ServerHello. Bigger hellos, same
+  1-RTT handshake.
+upstream_lab: learn/tls/key-exchange
+nodes:
+  server: pqcw-tls-server
+  client: pqcw-tls-client
+endpoints:
+  left:  {name: Client, ip: 172.32.0.3}
+  right: {name: Server, ip: 172.32.0.2}
+capture:
+  agent: pqcw-cap-tls
+  host: tls-server
+  bpf: "tcp port 4433"
+keylog: {node: client, path: /tmp/tls.keys}
+declared:
+  key_exchange: pq-hybrid
+  authentication: classical
+  authentication_algorithm: ECDSA P-256 (server only)
+steps:
+  - id: pki
+    title: Mint an ECDSA server certificate
+    exec:
+      - {node: server, cmd: "sh /pqcw/tls-pki.sh gen ecdsa && sh /pqcw/tls-pki.sh activate ecdsa", timeout: 60}
+  - id: server
+    title: Start openssl s_server (hybrid first, x25519 fallback)
+    exec:
+      - {node: server, cmd: "pkill -f 'openssl s_server' ; sleep 0.3; true"}
+      - {node: server, detach: true,
+         cmd: "openssl s_server -accept 172.32.0.2:4433 -www -tls1_3 -groups X25519MLKEM768:x25519 -cert /pki/active/server.crt -key /pki/active/server.key > /tmp/s_server.log 2>&1"}
+  - id: server-ready
+    title: Wait for the listener
+    action: wait_for
+    wait_for: {node: server, cmd: "ss -ltn", regex: "172.32.0.2:4433"}
+  - id: capture-start
+    title: Start capturing on the server's interface
+    action: capture_start
+  - id: handshake
+    title: Connect with openssl s_client and fetch a page
+    narration: Look at the ClientHello key_share - X25519MLKEM768 at 1216 bytes next to a 32-byte x25519 fallback.
+    exec:
+      - node: client
+        timeout: 20
+        cmd: >-
+          rm -f /tmp/tls.keys;
+          printf 'GET / HTTP/1.0\r\n\r\n' | openssl s_client -connect 172.32.0.2:4433 -tls1_3
+          -groups X25519MLKEM768:x25519 -CAfile /pki/active/ca.crt -verify_return_error
+          -verify_hostname server.pqcw.lab -servername server.pqcw.lab
+          -keylogfile /tmp/tls.keys -ign_eof 2>&1
+    expect: {regex: "X25519MLKEM768"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: stop-server
+    title: Stop s_server
+    exec:
+      - {node: server, cmd: "pkill -f 'openssl s_server'; true"}
+assertions:
+  - {id: offered, kind: tls.client_offers_group, expect: {group: X25519MLKEM768}}
+  - {id: group, kind: tls.server_group, expect: {group: X25519MLKEM768},
+     description: "ServerHello key_share is the hybrid group (wire evidence)"}
+  - {id: version, kind: tls.version, expect: {version: "TLS 1.3"}}
+  - {id: encrypted-data, kind: count, expect: {proto: TLS, tag: encrypted, min: 2}}
+  - {id: endpoint-group, kind: step_output, expect: {step: handshake, regex: "X25519MLKEM768"}}
+expected_numbers:
+  client_key_share_bytes: 1216
+  server_key_share_bytes: 1120
+  extra_round_trips: 0

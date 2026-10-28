@@ -1,0 +1,89 @@
+id: ipsec-auth-mldsa65
+title: "IKEv2 mutual auth, post-quantum: ML-DSA-65 certificates"
+protocol: ipsec
+stack: ipsec-auth
+pillar: authentication
+group: ipsec-auth
+order: 30
+summary: >
+  The parameter set Cisco ships on IOS XE 26.2 for IKEv2. ML-DSA-65: 1952-byte public
+  keys, 3309-byte signatures. On real C8000 routers this took the handshake from 7
+  frames / 7 KB to 20 frames / 24 KB. Measure the container equivalent here and
+  compare with the imported router capture in the UI.
+upstream_lab: learn/ipsec/authentication
+learn_more:
+  - https://blogs.cisco.com/developer/mutual-post-quantum-auth-over-ikev2-ipsec-series-part-8
+nodes:
+  initiator: pqcw-ipsec-auth-initiator
+  responder: pqcw-ipsec-auth-responder
+endpoints:
+  left:  {name: Initiator, ip: 172.31.0.2}
+  right: {name: Responder, ip: 172.31.0.3}
+capture:
+  agent: pqcw-cap-ipsec-auth
+  host: ipsec-auth-responder
+  bpf: "udp port 500 or udp port 4500 or esp or icmp"
+declared:
+  key_exchange: pq-hybrid
+  authentication: pq
+  authentication_algorithm: ML-DSA-65
+steps:
+  - id: reset
+    title: Clear any previous tunnel
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike auth-tunnel --force >/dev/null 2>&1; true", timeout: 15}
+  - id: pki
+    title: Mint the lab CA and leaf certificates (ML-DSA-65)
+    exec:
+      - {node: initiator, cmd: [/bin/bash, /pqcw/pki.sh, gen, ml-dsa-65], timeout: 60}
+  - id: install
+    title: Install each peer's certificate and key
+    exec:
+      - {node: responder, cmd: [/bin/bash, /pqcw/pki.sh, install, ml-dsa-65, responder]}
+      - {node: initiator, cmd: [/bin/bash, /pqcw/pki.sh, install, ml-dsa-65, initiator]}
+  - id: cert-info
+    title: Inspect the initiator certificate
+    exec:
+      - {node: initiator, cmd: [pki, --print, --in, /usr/local/etc/swanctl/x509/initiator.crt]}
+  - id: sizes
+    title: Weigh the certificate (DER bytes)
+    exec:
+      - {node: initiator, cmd: [/bin/bash, /pqcw/pki.sh, sizes, ml-dsa-65]}
+  - id: capture-start
+    title: Start capturing on the responder's interface
+    action: capture_start
+  - id: initiate
+    title: Initiate with ML-DSA-65 authentication
+    exec:
+      - {node: initiator, cmd: [swanctl, --initiate, --child, auth-child, --timeout, "25"], timeout: 35}
+    expect: {regex: "initiate completed successfully"}
+  - id: dataplane
+    title: Ping through the tunnel
+    exec:
+      - {node: initiator, cmd: [ping, -c, "3", -W, "2", 172.31.0.3]}
+  - id: list-sas
+    title: Show the established SA
+    exec:
+      - {node: initiator, cmd: [swanctl, --list-sas]}
+    expect: {regex: "ESTABLISHED"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: terminate
+    title: Tear the tunnel down
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike auth-tunnel --force; true"}
+assertions:
+  - {id: kex-addke, kind: ikev2.selected_additional_ke, expect: {methods: [ML_KEM_768]}}
+  - {id: ike-auth-fragmented, kind: ikev2.exchange_count, expect: {exchange: IKE_AUTH, min: 14}}
+  - {id: auth-cert, kind: step_output, expect: {step: cert-info, regex: 'pubkey:\s+ML_DSA_65 15616 bits'}}
+  - {id: esp, kind: count, expect: {proto: ESP, min: 6}}
+expected_numbers:
+  ml_dsa_65_public_key_bytes: 1952
+  ml_dsa_65_signature_bytes: 3309
+  cisco_c8000_ios_xe_26_2: "7 frames / 7 KB classical -> 20 frames / 24 KB with ML-DSA-65"
+  observed: "2026-10-29, strongSwan 6.1.0 ml-dsa @ eb72966d, frame bytes incl. 42 B Ethernet/IP/UDP"
+  handshake_frames: 21
+  handshake_bytes: 23253
+  ike_auth_messages: "16 (8 fragments each way)"

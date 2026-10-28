@@ -1,0 +1,88 @@
+id: ipsec-auth-ecdsa
+title: "IKEv2 mutual auth, classical: ECDSA P-256 certificates"
+protocol: ipsec
+stack: ipsec-auth
+pillar: authentication
+group: ipsec-auth
+order: 10
+summary: >
+  Authentication baseline. The key exchange is already hybrid ML-KEM-768; both peers
+  prove identity with ECDSA certificates from a lab CA. IKE_AUTH carries the cert,
+  the signature and the CA hint, and typically fits without fragmentation.
+upstream_lab: learn/ipsec/authentication
+learn_more:
+  - https://blogs.cisco.com/developer/mutual-post-quantum-auth-over-ikev2-ipsec-series-part-8
+nodes:
+  initiator: pqcw-ipsec-auth-initiator
+  responder: pqcw-ipsec-auth-responder
+endpoints:
+  left:  {name: Initiator, ip: 172.31.0.2}
+  right: {name: Responder, ip: 172.31.0.3}
+capture:
+  agent: pqcw-cap-ipsec-auth
+  host: ipsec-auth-responder
+  bpf: "udp port 500 or udp port 4500 or esp or icmp"
+declared:
+  key_exchange: pq-hybrid
+  authentication: classical
+  authentication_algorithm: ECDSA P-256
+steps:
+  - id: reset
+    title: Clear any previous tunnel
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike auth-tunnel --force >/dev/null 2>&1; true", timeout: 15}
+  - id: pki
+    title: Mint the lab CA and leaf certificates (ECDSA)
+    narration: Keys go into the pqcw_ipsec_pki Docker volume, never into the repository.
+    exec:
+      - {node: initiator, cmd: [/bin/bash, /pqcw/pki.sh, gen, ecdsa], timeout: 60}
+  - id: install
+    title: Install each peer's certificate and key
+    exec:
+      - {node: responder, cmd: [/bin/bash, /pqcw/pki.sh, install, ecdsa, responder]}
+      - {node: initiator, cmd: [/bin/bash, /pqcw/pki.sh, install, ecdsa, initiator]}
+  - id: cert-info
+    title: Inspect the initiator certificate
+    exec:
+      - {node: initiator, cmd: [pki, --print, --in, /usr/local/etc/swanctl/x509/initiator.crt]}
+  - id: sizes
+    title: Weigh the certificate (DER bytes)
+    exec:
+      - {node: initiator, cmd: [/bin/bash, /pqcw/pki.sh, sizes, ecdsa]}
+  - id: capture-start
+    title: Start capturing on the responder's interface
+    action: capture_start
+  - id: initiate
+    title: Initiate with certificate authentication
+    exec:
+      - {node: initiator, cmd: [swanctl, --initiate, --child, auth-child, --timeout, "20"], timeout: 30}
+    expect: {regex: "initiate completed successfully"}
+  - id: dataplane
+    title: Ping through the tunnel
+    exec:
+      - {node: initiator, cmd: [ping, -c, "3", -W, "2", 172.31.0.3]}
+  - id: list-sas
+    title: Show the established SA
+    exec:
+      - {node: initiator, cmd: [swanctl, --list-sas]}
+    expect: {regex: "ESTABLISHED"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: terminate
+    title: Tear the tunnel down
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike auth-tunnel --force; true"}
+assertions:
+  - {id: kex-addke, kind: ikev2.selected_additional_ke, expect: {methods: [ML_KEM_768]}}
+  - {id: ike-auth-small, kind: ikev2.exchange_count, expect: {exchange: IKE_AUTH, min: 2, max: 4},
+     description: "IKE_AUTH needs at most a fragment or two with ECDSA"}
+  - {id: auth-cert, kind: step_output, expect: {step: cert-info, regex: 'pubkey:\s+ECDSA 256 bits'},
+     description: "The installed certificate is ECDSA (endpoint evidence; IKE_AUTH is encrypted)"}
+  - {id: esp, kind: count, expect: {proto: ESP, min: 6}}
+expected_numbers:
+  observed: "2026-10-29, strongSwan 6.1.0 ml-dsa @ eb72966d, frame bytes incl. 42 B Ethernet/IP/UDP"
+  handshake_frames: 7
+  handshake_bytes: 4937
+  ike_auth_messages: 2

@@ -1,0 +1,4 @@
+[submodule "vendor/juliogomez-pqc"]
+	path = vendor/juliogomez-pqc
+	url = https://github.com/juliogomez/pqc.git
+	branch = main

@@ -1,0 +1,79 @@
+id: ssh-auth-composite
+title: "SSH: composite Ed25519 + ML-DSA-44 host and user keys"
+protocol: ssh
+stack: ssh
+pillar: both
+group: ssh
+order: 30
+summary: >
+  The authentication frontier. OpenSSH 10.4 ships an experimental composite signature
+  (Ed25519 + ML-DSA-44) implementing an IETF draft. No vendor supports it in a released
+  product yet - Cisco IOS XE 26.2 does not - and that is the correct call. Here it runs
+  end to end; the server host key algorithm is visible in the cleartext KEXINITs.
+upstream_lab: learn/ssh
+nodes:
+  server: pqcw-ssh-server
+  client: pqcw-ssh-client
+endpoints:
+  left:  {name: Client, ip: 172.33.0.3}
+  right: {name: Server, ip: 172.33.0.2}
+capture:
+  agent: pqcw-cap-ssh
+  host: ssh-server
+  bpf: "tcp port 22"
+declared:
+  key_exchange: pq-hybrid
+  authentication: pq
+  authentication_algorithm: Ed25519+ML-DSA-44 (composite, experimental)
+steps:
+  - id: discover
+    title: Discover the exact composite algorithm name
+    narration: The name is taken from this OpenSSH build rather than hardcoded.
+    exec:
+      - {node: client, cmd: "ssh -Q HostKeyAlgorithms | grep -i mldsa | grep -v cert | head -1"}
+    expect: {regex: "(?i)mldsa"}
+  - id: alg
+    title: Remember it for the next steps
+    action: resolve
+    var: pq_alg
+    exec:
+      - {node: client, cmd: "ssh -Q HostKeyAlgorithms | grep -i mldsa | grep -v cert | head -1"}
+  - id: keys
+    title: Mint composite host and user keys
+    exec:
+      - {node: server, cmd: "sh /pqcw/ssh-keys.sh mldsa44-ed25519", timeout: 30}
+  - id: sshd
+    title: Start sshd accepting only the composite algorithm
+    exec:
+      - {node: server, cmd: "pkill -f 'sshd -D' ; sleep 0.3; true"}
+      - {node: server, detach: true,
+         cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config -o HostKeyAlgorithms=${pq_alg} -o PubkeyAcceptedAlgorithms=${pq_alg} > /tmp/sshd.log 2>&1"}
+  - id: sshd-ready
+    title: Wait for the listener
+    action: wait_for
+    wait_for: {node: server, cmd: "ss -ltn", regex: "172.33.0.2:22"}
+  - id: capture-start
+    title: Start capturing on the server's interface
+    action: capture_start
+  - id: connect
+    title: Connect with the composite keys
+    exec:
+      - {node: client, timeout: 20,
+         cmd: "install -m 600 /pqcw/ssh_config /tmp/ssh_config && ssh -F /tmp/ssh_config -v -o HostKeyAlgorithms=${pq_alg} -o PubkeyAcceptedAlgorithms=${pq_alg} pqc-server 'echo PQC-OK' 2>&1"}
+    expect: {regex: "PQC-OK"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: stop-sshd
+    title: Stop sshd
+    exec:
+      - {node: server, cmd: "pkill -f 'sshd -D'; true"}
+assertions:
+  - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: mlkem768x25519-sha256}}
+  - {id: hostkey-wire, kind: ssh.negotiated_host_key, expect: {contains: mldsa},
+     description: "Server host key algorithm (cleartext KEXINIT) is the composite ML-DSA"}
+  - {id: auth-endpoint, kind: step_output, expect: {step: connect, regex: "(?i)host key algorithm: .*mldsa"}}
+expected_numbers:
+  ml_dsa_44_public_key_bytes: 1312
+  ml_dsa_44_signature_bytes: 2420

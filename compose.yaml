@@ -1,0 +1,28 @@
+# PQC WireScope - root Compose file.
+#
+# Every protocol lab lives in its own stack under stacks/, and this file pulls
+# them into ONE Compose project so the backend can see every node and capture
+# agent on a shared management network. Requires Docker Compose v2.20+ (include:).
+#
+#   make up                         # everything (first build compiles strongSwan x2, hostap, OpenSSH: 15-25 min)
+#   make up PROFILES="ipsec tls"    # only some protocol stacks (mgmt is always on)
+#
+# Subnets are deliberately different from the upstream juliogomez/pqc labs
+# (172.20.0.0/24 - 172.25.0.0/24) so you can run both side by side.
+#
+#   172.29.0.0/24  pqcw_mgmt     backend, frontend, socket-proxy, + every node's mgmt leg
+#   172.30.0.0/24  ipsec_net     IKEv2 key exchange (initiator .2, responder .3)
+#   172.31.0.0/24  ipsec_auth    IKEv2 authentication, ML-DSA image (initiator .2, responder .3)
+#   172.32.0.0/24  tls_net       TLS 1.3 (server .2, client .3)
+#   172.33.0.0/24  ssh_net       SSH (server .2, client .3)
+#   172.34.0.0/24  macsec_net    placeholder only; EAPOL runs on a veth pair (aut <-> sup)
+#   172.35.0.0/29  pqcw_dockerapi  internal: backend <-> socket-proxy only (lab nodes cannot reach it)
+name: pqcw
+
+include:
+  - stacks/mgmt/compose.yaml
+  - stacks/ipsec/compose.yaml
+  - stacks/ipsec-auth/compose.yaml
+  - stacks/tls/compose.yaml
+  - stacks/ssh/compose.yaml
+  - stacks/macsec/compose.yaml

@@ -1,0 +1,82 @@
+id: tls-auth-mldsa65-mtls
+title: "TLS 1.3 mutual auth, post-quantum: ML-DSA-65 certificates"
+protocol: tls
+stack: tls
+pillar: both
+group: tls-auth
+order: 20
+summary: >
+  Both pillars post-quantum in one TLS 1.3 handshake: X25519MLKEM768 key exchange and
+  ML-DSA-65 certificates on both sides, straight from OpenSSL 3.5's default provider.
+  The lab key log decrypts the Certificate messages so the UI can show the ML-DSA
+  OIDs as wire evidence - and how much bigger the encrypted flights became.
+upstream_lab: learn/tls/authentication
+nodes:
+  server: pqcw-tls-server
+  client: pqcw-tls-client
+endpoints:
+  left:  {name: Client, ip: 172.32.0.3}
+  right: {name: Server, ip: 172.32.0.2}
+capture:
+  agent: pqcw-cap-tls
+  host: tls-server
+  bpf: "tcp port 4433"
+keylog: {node: client, path: /tmp/tls.keys}
+declared:
+  key_exchange: pq-hybrid
+  authentication: pq
+  authentication_algorithm: ML-DSA-65 (mutual)
+steps:
+  - id: pki
+    title: Mint ML-DSA-65 CA, server and client certificates
+    exec:
+      - {node: server, cmd: "sh /pqcw/tls-pki.sh gen ml-dsa-65 && sh /pqcw/tls-pki.sh activate ml-dsa-65 && sh /pqcw/tls-pki.sh sizes ml-dsa-65", timeout: 60}
+  - id: server
+    title: Start openssl s_server requiring a client certificate
+    exec:
+      - {node: server, cmd: "pkill -f 'openssl s_server' ; sleep 0.3; true"}
+      - {node: server, detach: true,
+         cmd: "openssl s_server -accept 172.32.0.2:4433 -www -tls1_3 -groups X25519MLKEM768:x25519 -cert /pki/active/server.crt -key /pki/active/server.key -CAfile /pki/active/ca.crt -Verify 1 -verify_return_error > /tmp/s_server.log 2>&1"}
+  - id: server-ready
+    title: Wait for the listener
+    action: wait_for
+    wait_for: {node: server, cmd: "ss -ltn", regex: "172.32.0.2:4433"}
+  - id: capture-start
+    title: Start capturing on the server's interface
+    action: capture_start
+  - id: handshake
+    title: Mutual TLS handshake with ML-DSA-65
+    narration: The server's encrypted flight grows by several KB - certificate plus a 3309-byte signature.
+    exec:
+      - node: client
+        timeout: 20
+        cmd: >-
+          rm -f /tmp/tls.keys;
+          printf 'GET / HTTP/1.0\r\n\r\n' | openssl s_client -connect 172.32.0.2:4433 -tls1_3
+          -groups X25519MLKEM768:x25519 -CAfile /pki/active/ca.crt -verify_return_error
+          -verify_hostname server.pqcw.lab -servername server.pqcw.lab
+          -cert /pki/active/client.crt -key /pki/active/client.key
+          -keylogfile /tmp/tls.keys -ign_eof 2>&1
+    expect: {regex: "Verify return code: 0 \\(ok\\)"}
+  - id: peer-sig
+    title: Ask OpenSSL which signature algorithm the peer used
+    exec:
+      - {node: client, cmd: "openssl x509 -in /pki/active/server.crt -noout -text | grep -m2 -i 'algorithm'"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: stop-server
+    title: Stop s_server
+    exec:
+      - {node: server, cmd: "pkill -f 'openssl s_server'; true"}
+assertions:
+  - {id: group, kind: tls.server_group, expect: {group: X25519MLKEM768}}
+  - {id: offers-mldsa, kind: count, expect: {proto: TLS, tag: pq-auth-offer, min: 1},
+     description: "ClientHello signature_algorithms advertises ML-DSA (cleartext)"}
+  - {id: auth-wire, kind: tls.decrypted_cert_pq, expect: {post_quantum: true},
+     description: "Decrypted Certificate messages carry ML-DSA OIDs"}
+  - {id: auth-endpoint, kind: step_output, expect: {step: peer-sig, regex: "(?i)ML-DSA-65"}}
+expected_numbers:
+  ml_dsa_65_public_key_bytes: 1952
+  ml_dsa_65_signature_bytes: 3309

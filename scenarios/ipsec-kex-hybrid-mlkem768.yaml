@@ -1,0 +1,100 @@
+id: ipsec-kex-hybrid-mlkem768
+title: "IKEv2 hybrid key exchange: X25519 + ML-KEM-768"
+protocol: ipsec
+stack: ipsec
+pillar: key-exchange
+group: ipsec-kex
+order: 20
+summary: >
+  The headline demo. X25519 runs in IKE_SA_INIT exactly as before, then RFC 9370 adds
+  ML-KEM-768 as Additional Key Exchange #1 inside an RFC 9242 IKE_INTERMEDIATE
+  exchange. The 1184-byte encapsulation key overflows one IKE message, so RFC 7383
+  fragments it. Cost: one extra round trip and roughly 2.3 KB. Benefit: the session
+  keys survive a quantum attacker as long as either X25519 or ML-KEM holds.
+upstream_lab: learn/ipsec/key-exchange
+learn_more:
+  - https://blogs.cisco.com/developer/watch-a-hybrid-post-quantum-handshake-on-the-wire-ipsec-series-part-4
+  - https://www.rfc-editor.org/rfc/rfc9370
+  - https://www.rfc-editor.org/rfc/rfc9242
+nodes:
+  initiator: pqcw-ipsec-initiator
+  responder: pqcw-ipsec-responder
+endpoints:
+  left:  {name: Initiator, ip: 172.30.0.2}
+  right: {name: Responder, ip: 172.30.0.3}
+capture:
+  agent: pqcw-cap-ipsec
+  host: ipsec-responder
+  bpf: "udp port 500 or udp port 4500 or esp or icmp"
+declared:
+  key_exchange: pq-hybrid
+  authentication: classical
+  authentication_algorithm: PSK
+steps:
+  - id: reset
+    title: Clear any previous tunnel
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force >/dev/null 2>&1; true", timeout: 15}
+  - id: algos
+    title: Confirm strongSwan's native ML-KEM plugin is loaded
+    narration: strongSwan 6.x ships a self-contained `ml` plugin (FIPS 203) - no liboqs needed.
+    exec:
+      - {node: initiator, cmd: "swanctl --list-algs | grep -i ml_kem"}
+    expect: {regex: "ML_KEM_768"}
+  - id: load
+    title: Load the hybrid posture on both peers
+    narration: "proposals = aes256gcm16-prfsha256-x25519-ke1_mlkem768, fragmentation = yes"
+    exec:
+      - {node: responder, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/hybrid-mlkem768.conf]}
+      - {node: initiator, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/hybrid-mlkem768.conf]}
+  - id: capture-start
+    title: Start capturing on the responder's interface
+    action: capture_start
+  - id: initiate
+    title: Initiate the hybrid tunnel
+    narration: >
+      Watch the ladder: IKE_SA_INIT (X25519 + ADDKE1 ML-KEM-768 offered), then
+      IKE_INTERMEDIATE carrying the ML-KEM key in two fragments, the ciphertext back,
+      and only then IKE_AUTH.
+    exec:
+      - {node: initiator, cmd: [swanctl, --initiate, --child, pqc-child, --timeout, "20"], timeout: 30}
+    expect: {regex: "initiate completed successfully"}
+  - id: dataplane
+    title: Ping through the tunnel
+    narration: The data plane is still AES-256-GCM ESP - symmetric crypto with 256-bit keys is already quantum-resistant.
+    exec:
+      - {node: initiator, cmd: [ping, -c, "3", -W, "2", 172.30.0.3]}
+  - id: list-sas
+    title: Show the negotiated IKE SA
+    exec:
+      - {node: initiator, cmd: [swanctl, --list-sas]}
+    expect: {regex: "KE1_ML_KEM_768"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: terminate
+    title: Tear the tunnel down
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force; true"}
+assertions:
+  - {id: kex-addke, kind: ikev2.selected_additional_ke, expect: {methods: [ML_KEM_768]},
+     description: "Responder selected ML-KEM-768 as ADDKE1 (decoded from the cleartext IKE_SA_INIT)"}
+  - {id: intermediate, kind: ikev2.exchange_count, expect: {exchange: IKE_INTERMEDIATE, min: 2},
+     description: "An IKE_INTERMEDIATE exchange happened (RFC 9242)"}
+  - {id: fragmented, kind: count, expect: {proto: IKEv2, tag: fragment, min: 2},
+     description: "The ML-KEM key was fragmented (RFC 7383)"}
+  - {id: esp, kind: count, expect: {proto: ESP, min: 6}}
+  - {id: no-cleartext-icmp, kind: count, expect: {proto: ICMP, max: 0}}
+  - {id: endpoint-sa, kind: step_output, expect: {step: list-sas, regex: "CURVE_25519/KE1_ML_KEM_768"}}
+expected_numbers:
+  source: "juliogomez/pqc IPsec Part 4"
+  ike_intermediate_request_bytes: "~1250 (2 fragments)"
+  ike_intermediate_response_bytes: "~1155"
+  extra_round_trips: 1
+  observed: "observed (2026-10-29, strongSwan 6.0 ml plugin, frame bytes incl. 42 B Ethernet/IP/UDP)"
+  handshake_frames: 7
+  handshake_bytes: 3735
+  ike_intermediate_request_frames: "1294 + 112 (2 fragments)"
+  ike_intermediate_response_frame: 1199
+  bytes_vs_classical: 3.4

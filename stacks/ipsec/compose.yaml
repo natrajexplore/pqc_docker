@@ -1,0 +1,95 @@
+# IKEv2 / IPsec key-exchange stack (profile: ipsec).
+#
+# Image: the upstream lab's stable strongSwan 6.0.x build with the native `ml`
+# plugin (ML-KEM-512/768/1024), built straight from the vendored repo so we do
+# not fork its Dockerfile.
+#
+# What is ours rather than upstream's:
+#   * entrypoint-wrapper.sh renders the PSK/PPK from .env into /run/pqcw at
+#     start-up, so no secret is committed (upstream hardcodes a lab PSK).
+#   * config/<peer>/variants/*.conf: one file per proposal set. The orchestrator
+#     switches variants with `swanctl --load-all --file ...` instead of making
+#     you hand-edit swanctl.conf.
+#   * cap-ipsec: a capture-agent sidecar sharing the responder's network
+#     namespace, so it sees exactly what the responder sees on the wire.
+
+x-ipsec-node: &ipsec-node
+  build:
+    context: ../../vendor/juliogomez-pqc/learn/docker
+    dockerfile: Dockerfile
+  image: pqcw/strongswan:6.0-ml
+  profiles: ["ipsec"]
+  # Least privilege: XFRM policy/SA install needs NET_ADMIN, tcpdump needs NET_RAW.
+  cap_add: [NET_ADMIN, NET_RAW]
+  security_opt: [no-new-privileges:true]
+  entrypoint: ["/bin/bash", "/pqcw/entrypoint-wrapper.sh"]
+  env_file:
+    - path: ../../.env
+      required: false
+
+services:
+  ipsec-responder:
+    <<: *ipsec-node
+    container_name: pqcw-ipsec-responder
+    hostname: ipsec-responder
+    volumes:
+      - ./entrypoint-wrapper.sh:/pqcw/entrypoint-wrapper.sh:ro
+      - ./config/responder/swanctl.conf:/usr/local/etc/swanctl/swanctl.conf:ro
+      - ./config/responder/variants:/usr/local/etc/swanctl/variants:ro
+    networks:
+      ipsec_net:
+        ipv4_address: 172.30.0.3
+      pqcw_mgmt:
+
+  ipsec-initiator:
+    <<: *ipsec-node
+    container_name: pqcw-ipsec-initiator
+    hostname: ipsec-initiator
+    volumes:
+      - ./entrypoint-wrapper.sh:/pqcw/entrypoint-wrapper.sh:ro
+      - ./config/initiator/swanctl.conf:/usr/local/etc/swanctl/swanctl.conf:ro
+      - ./config/initiator/variants:/usr/local/etc/swanctl/variants:ro
+    networks:
+      ipsec_net:
+        ipv4_address: 172.30.0.2
+      pqcw_mgmt:
+    depends_on:
+      - ipsec-responder
+
+  cap-ipsec:
+    build:
+      context: ../../capture-agent
+    image: pqcw/capture-agent:latest
+    container_name: pqcw-cap-ipsec
+    profiles: ["ipsec"]
+    network_mode: "service:ipsec-responder"
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN]   # dumpcap/tshark on a live interface
+    security_opt: [no-new-privileges:true]
+    env_file:
+      - path: ../../.env
+        required: false  # PQCW_AGENT_TOKEN
+    environment:
+      AGENT_NAME: cap-ipsec
+      LAB_SUBNET: 172.30.0.0/24     # capture on whichever interface holds this subnet
+      MGMT_SUBNET: 172.29.0.0/24    # API listens on the mgmt leg only
+      CAPTURE_DIR: /captures
+    volumes:
+      - pqcw_captures:/captures
+    depends_on:
+      - ipsec-responder
+
+networks:
+  ipsec_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  pqcw_mgmt:
+    external: true
+    name: pqcw_mgmt
+
+volumes:
+  pqcw_captures:
+    external: true
+    name: pqcw_captures

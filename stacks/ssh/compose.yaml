@@ -1,0 +1,87 @@
+# SSH stack (profile: ssh). OpenSSH 10.4 built from source by the upstream
+# Dockerfile.ssh:
+#   key exchange    mlkem768x25519-sha256 is the DEFAULT - zero config
+#   downgrade       forcing curve25519-sha256 makes OpenSSH warn out loud
+#   authentication  composite ssh-mldsa44-ed25519 host + user keys (experimental, opt-in)
+#
+# Keys are minted by ssh-keys.sh into the pqcw_ssh_keys named volume:
+#   /keys/server/{ssh_host_key,ssh_host_key.pub,authorized_keys}
+#   /keys/client/{id_key,id_key.pub,known_hosts}
+# Always connect to the lab IP 172.33.0.2 (see the TLS stack note on dual-homed DNS).
+
+x-ssh-node: &ssh-node
+  build:
+    context: ../../vendor/juliogomez-pqc/learn/docker
+    dockerfile: Dockerfile.ssh
+  image: pqcw/openssh:10.4
+  profiles: ["ssh"]
+  cap_add: [NET_RAW]
+  security_opt: [no-new-privileges:true]
+
+services:
+  ssh-server:
+    <<: *ssh-node
+    container_name: pqcw-ssh-server
+    hostname: ssh-server
+    volumes:
+      - ./config/sshd_config:/pqcw/sshd_config:ro
+      - ./ssh-keys.sh:/pqcw/ssh-keys.sh:ro
+      - pqcw_ssh_keys:/keys
+    networks:
+      ssh_net:
+        ipv4_address: 172.33.0.2
+      pqcw_mgmt:
+
+  ssh-client:
+    <<: *ssh-node
+    container_name: pqcw-ssh-client
+    hostname: ssh-client
+    volumes:
+      - ./config/ssh_config:/pqcw/ssh_config:ro
+      - pqcw_ssh_keys:/keys:ro
+    networks:
+      ssh_net:
+        ipv4_address: 172.33.0.3
+      pqcw_mgmt:
+    depends_on:
+      - ssh-server
+
+  cap-ssh:
+    image: pqcw/capture-agent:latest
+    build:
+      context: ../../capture-agent
+    container_name: pqcw-cap-ssh
+    profiles: ["ssh"]
+    network_mode: "service:ssh-server"
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    env_file:
+      - path: ../../.env
+        required: false  # PQCW_AGENT_TOKEN
+    environment:
+      AGENT_NAME: cap-ssh
+      LAB_SUBNET: 172.33.0.0/24
+      MGMT_SUBNET: 172.29.0.0/24
+      CAPTURE_DIR: /captures
+    volumes:
+      - pqcw_captures:/captures
+    depends_on:
+      - ssh-server
+
+networks:
+  ssh_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.33.0.0/24
+  pqcw_mgmt:
+    external: true
+    name: pqcw_mgmt
+
+volumes:
+  pqcw_captures:
+    external: true
+    name: pqcw_captures
+  pqcw_ssh_keys:
+    name: pqcw_ssh_keys

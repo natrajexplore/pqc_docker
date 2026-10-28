@@ -1,0 +1,77 @@
+id: ipsec-kex-ppk
+title: "IKEv2 post-quantum preshared key (RFC 8784)"
+protocol: ipsec
+stack: ipsec
+pillar: key-exchange
+group: ipsec-kex
+order: 40
+summary: >
+  A different road to quantum safety with no new algorithm: classical X25519 on the
+  wire, but a static 256-bit PPK is mixed into the key schedule. The wire shows
+  USE_PPK in IKE_SA_INIT and no IKE_INTERMEDIATE. Trade-off: you now have a
+  symmetric key distribution problem, which is why Cisco treats PPK as a bridge
+  and ML-KEM as the destination (IOS XE refuses to stack both).
+upstream_lab: learn/ipsec/key-exchange
+learn_more:
+  - https://blogs.cisco.com/developer/a-different-road-to-quantum-safety-the-ppk-ipsec-series-part-5
+  - https://www.rfc-editor.org/rfc/rfc8784
+nodes:
+  initiator: pqcw-ipsec-initiator
+  responder: pqcw-ipsec-responder
+endpoints:
+  left:  {name: Initiator, ip: 172.30.0.2}
+  right: {name: Responder, ip: 172.30.0.3}
+capture:
+  agent: pqcw-cap-ipsec
+  host: ipsec-responder
+  bpf: "udp port 500 or udp port 4500 or esp or icmp"
+declared:
+  key_exchange: pq-ppk
+  authentication: classical
+  authentication_algorithm: PSK
+steps:
+  - id: reset
+    title: Clear any previous tunnel
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force >/dev/null 2>&1; true", timeout: 15}
+  - id: load
+    title: Load the PPK posture on both peers
+    narration: "ppk_id = pqcw-ppk, ppk_required = yes. The PPK value itself comes from .env, never from git."
+    exec:
+      - {node: responder, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/ppk.conf]}
+      - {node: initiator, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/ppk.conf]}
+  - id: capture-start
+    title: Start capturing on the responder's interface
+    action: capture_start
+  - id: initiate
+    title: Initiate the tunnel
+    exec:
+      - {node: initiator, cmd: [swanctl, --initiate, --child, pqc-child, --timeout, "20"], timeout: 30}
+    expect: {regex: "initiate completed successfully"}
+  - id: dataplane
+    title: Ping through the tunnel
+    exec:
+      - {node: initiator, cmd: [ping, -c, "3", -W, "2", 172.30.0.3]}
+  - id: list-sas
+    title: Show the negotiated IKE SA
+    exec:
+      - {node: initiator, cmd: [swanctl, --list-sas]}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: terminate
+    title: Tear the tunnel down
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force; true"}
+assertions:
+  - {id: use-ppk, kind: ikev2.notify, expect: {notify: USE_PPK},
+     description: "USE_PPK negotiated in IKE_SA_INIT"}
+  - {id: no-intermediate, kind: ikev2.exchange_count, expect: {exchange: IKE_INTERMEDIATE, max: 0}}
+  - {id: no-addke, kind: ikev2.selected_additional_ke, expect: {none: true}}
+  - {id: esp, kind: count, expect: {proto: ESP, min: 6}}
+expected_numbers:
+  note: "Same frame count as the classical baseline - the protection is invisible on the wire apart from the notifies."
+  observed: "observed (2026-10-29, strongSwan 6.0 ml plugin, frame bytes incl. 42 B Ethernet/IP/UDP)"
+  handshake_frames: 4
+  handshake_bytes: 1139

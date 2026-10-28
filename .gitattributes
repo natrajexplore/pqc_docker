@@ -1,0 +1,6 @@
+# Scripts, configs and Dockerfiles are mounted into or built for Linux
+# containers: CRLF (core.autocrlf on Windows) breaks shebangs and parsers.
+* text=auto eol=lf
+*.png binary
+*.zip binary
+*.pcapng binary

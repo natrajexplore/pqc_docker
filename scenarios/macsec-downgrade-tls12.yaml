@@ -1,0 +1,97 @@
+id: macsec-downgrade-tls12
+title: "MACsec / 802.1X: the SILENT downgrade to classical TLS 1.2"
+protocol: macsec
+stack: macsec
+pillar: key-exchange
+group: macsec
+order: 30
+summary: >
+  Remove one line (tls_flags) from hostapd.conf and EAP still reports success - but
+  the handshake is TLS 1.2 ECDHE and ML-KEM has vanished. The client offered
+  X25519MLKEM768; the server capped the version. An operator watching only for
+  "EAP authentication completed successfully" would never notice. This UI does:
+  the run turns red even though every endpoint log looks green.
+upstream_lab: learn/macsec
+nodes:
+  authenticator: pqcw-macsec-authenticator
+  supplicant: pqcw-macsec-supplicant
+endpoints:
+  left:  {name: Supplicant, mac: "${sup_mac}"}
+  right: {name: Authenticator, mac: "${aut_mac}"}
+capture:
+  agent: pqcw-cap-macsec
+  host: macsec-authenticator
+  bpf: "ether proto 0x888e or ether proto 0x88e5"
+declared:
+  key_exchange: downgraded
+  authentication: classical
+  authentication_algorithm: ECDSA P-256
+steps:
+  - id: pki
+    title: Use ECDSA EAP certificates
+    exec:
+      - {node: authenticator, cmd: "sh /pqcw/tls-pki.sh gen ecdsa && sh /pqcw/tls-pki.sh activate ecdsa", timeout: 60}
+  - id: sup-mac
+    title: Learn the supplicant port MAC
+    action: resolve
+    var: sup_mac
+    exec:
+      - {node: authenticator, cmd: [cat, /sys/class/net/sup/address]}
+  - id: aut-mac
+    title: Learn the authenticator port MAC
+    action: resolve
+    var: aut_mac
+    exec:
+      - {node: authenticator, cmd: [cat, /sys/class/net/aut/address]}
+  - id: reset
+    title: Stop any previous 802.1X daemons
+    exec:
+      - {node: authenticator, cmd: "pkill hostapd; true"}
+      - {node: supplicant, cmd: "pkill wpa_supplicant; rm -f /tmp/wpa.log; true"}
+  - id: hostapd
+    title: Start hostapd WITHOUT tls_flags
+    narration: hostapd's default disables TLS 1.3 for EAP. Nothing fails. That is the problem.
+    exec:
+      - {node: authenticator, detach: true, cmd: "hostapd -dd /pqcw/cfg/hostapd-tls12-downgrade.conf > /tmp/hostapd.log 2>&1"}
+  - id: hostapd-ready
+    title: Wait for the authenticator port to come up
+    action: wait_for
+    wait_for: {node: authenticator, cmd: "grep -a -E 'AP-ENABLED|interface state .*ENABLED' /tmp/hostapd.log || true", regex: "ENABLED", timeout: 10}
+  - id: capture-start
+    title: Start capturing EAPOL on the aut port
+    action: capture_start
+  - id: supplicant
+    title: Start wpa_supplicant (unchanged config)
+    exec:
+      - {node: supplicant, detach: true, cmd: "wpa_supplicant -Dwired -isup -c /pqcw/cfg/wpa_supplicant.conf -t -dd > /tmp/wpa.log 2>&1"}
+  - id: eap-result
+    title: Wait for EAP result
+    action: wait_for
+    wait_for: {node: supplicant, cmd: "grep -a -E 'CTRL-EVENT-EAP-(SUCCESS|FAILURE)' /tmp/wpa.log || true", regex: "CTRL-EVENT-EAP-SUCCESS", timeout: 25}
+  - id: milestones
+    title: The endpoint's view - everything looks fine
+    exec:
+      - {node: supplicant, cmd: "grep -aE 'Using TLS version|CTRL-EVENT-EAP-SUCCESS' /tmp/wpa.log | uniq"}
+  - id: settle
+    title: Let the last EAPOL frames land
+    action: sleep
+    seconds: 1
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: stop-daemons
+    title: Stop hostapd and wpa_supplicant
+    exec:
+      - {node: supplicant, cmd: "pkill wpa_supplicant; true"}
+      - {node: authenticator, cmd: "pkill hostapd; true"}
+assertions:
+  - {id: client-offered-pq, kind: tls.client_offers_group, expect: {group: X25519MLKEM768},
+     description: "The supplicant DID offer the hybrid group"}
+  - {id: server-capped, kind: tls.version, expect: {version: "TLS 1.2"},
+     description: "...but the server negotiated TLS 1.2"}
+  - {id: no-pq-share, kind: tls.server_group, expect: {not: X25519MLKEM768}}
+  - {id: endpoint-says-success, kind: step_output, expect: {step: milestones, regex: "CTRL-EVENT-EAP-SUCCESS"},
+     description: "EAP reports success anyway - the downgrade is silent"}
+expected_numbers:
+  note: "This run is SUPPOSED to be red. Every assertion passing means the UI caught the downgrade."

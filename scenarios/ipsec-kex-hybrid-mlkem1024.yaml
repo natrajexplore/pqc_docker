@@ -1,0 +1,78 @@
+id: ipsec-kex-hybrid-mlkem1024
+title: "IKEv2 hybrid key exchange: X25519 + ML-KEM-1024"
+protocol: ipsec
+stack: ipsec
+pillar: key-exchange
+group: ipsec-kex
+order: 30
+summary: >
+  Turn the dial to NIST level 5. ML-KEM-1024 has a 1568-byte key AND a 1568-byte
+  ciphertext, so both directions of IKE_INTERMEDIATE fragment. Compare it to the
+  ML-KEM-768 run to see what the extra security margin costs on the wire.
+upstream_lab: learn/ipsec/key-exchange
+learn_more:
+  - https://blogs.cisco.com/developer/ml-kem-vs-diffie-hellman-the-showdown-ipsec-series-part-3
+nodes:
+  initiator: pqcw-ipsec-initiator
+  responder: pqcw-ipsec-responder
+endpoints:
+  left:  {name: Initiator, ip: 172.30.0.2}
+  right: {name: Responder, ip: 172.30.0.3}
+capture:
+  agent: pqcw-cap-ipsec
+  host: ipsec-responder
+  bpf: "udp port 500 or udp port 4500 or esp or icmp"
+declared:
+  key_exchange: pq-hybrid
+  authentication: classical
+  authentication_algorithm: PSK
+steps:
+  - id: reset
+    title: Clear any previous tunnel
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force >/dev/null 2>&1; true", timeout: 15}
+  - id: load
+    title: Load the ML-KEM-1024 posture on both peers
+    exec:
+      - {node: responder, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/hybrid-mlkem1024.conf]}
+      - {node: initiator, cmd: [swanctl, --load-all, --file, /usr/local/etc/swanctl/variants/hybrid-mlkem1024.conf]}
+  - id: capture-start
+    title: Start capturing on the responder's interface
+    action: capture_start
+  - id: initiate
+    title: Initiate the tunnel
+    exec:
+      - {node: initiator, cmd: [swanctl, --initiate, --child, pqc-child, --timeout, "20"], timeout: 30}
+    expect: {regex: "initiate completed successfully"}
+  - id: dataplane
+    title: Ping through the tunnel
+    exec:
+      - {node: initiator, cmd: [ping, -c, "3", -W, "2", 172.30.0.3]}
+  - id: list-sas
+    title: Show the negotiated IKE SA
+    exec:
+      - {node: initiator, cmd: [swanctl, --list-sas]}
+    expect: {regex: "KE1_ML_KEM_1024"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: terminate
+    title: Tear the tunnel down
+    exec:
+      - {node: initiator, cmd: "swanctl --terminate --ike pqc-tunnel --force; true"}
+assertions:
+  - {id: kex-addke, kind: ikev2.selected_additional_ke, expect: {methods: [ML_KEM_1024]}}
+  - {id: intermediate-both-ways, kind: ikev2.exchange_count, expect: {exchange: IKE_INTERMEDIATE, min: 3},
+     description: "Request AND response are fragmented, so at least 3 IKE_INTERMEDIATE packets"}
+  - {id: esp, kind: count, expect: {proto: ESP, min: 6}}
+  - {id: endpoint-sa, kind: step_output, expect: {step: list-sas, regex: "KE1_ML_KEM_1024"}}
+expected_numbers:
+  ml_kem_1024_public_key_bytes: 1568
+  ml_kem_1024_ciphertext_bytes: 1568
+  observed: "observed (2026-10-29, strongSwan 6.0 ml plugin, frame bytes incl. 42 B Ethernet/IP/UDP)"
+  handshake_frames: 8
+  handshake_bytes: 4742
+  ike_intermediate_request_frames: "1294 + 496 (2 fragments)"
+  ike_intermediate_response_frames: "1294 + 496 (2 fragments)"
+  bytes_vs_classical: 4.3

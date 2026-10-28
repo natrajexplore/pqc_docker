@@ -1,0 +1,62 @@
+id: ssh-kex-downgrade
+title: "SSH: forced classical key exchange (and OpenSSH says so)"
+protocol: ssh
+stack: ssh
+pillar: key-exchange
+group: ssh
+order: 20
+summary: >
+  Simulate an old peer by forcing curve25519-sha256. Unlike EAP-TLS, SSH does not
+  downgrade silently: recent OpenSSH warns that the connection is not using a
+  post-quantum key exchange. The wire proves the classical choice; the verdict goes red.
+upstream_lab: learn/ssh
+nodes:
+  server: pqcw-ssh-server
+  client: pqcw-ssh-client
+endpoints:
+  left:  {name: Client, ip: 172.33.0.3}
+  right: {name: Server, ip: 172.33.0.2}
+capture:
+  agent: pqcw-cap-ssh
+  host: ssh-server
+  bpf: "tcp port 22"
+declared:
+  key_exchange: classical
+  authentication: classical
+  authentication_algorithm: Ed25519
+steps:
+  - id: keys
+    title: Mint Ed25519 host and user keys
+    exec:
+      - {node: server, cmd: "sh /pqcw/ssh-keys.sh ed25519", timeout: 30}
+  - id: sshd
+    title: Start sshd
+    exec:
+      - {node: server, cmd: "pkill -f 'sshd -D' ; sleep 0.3; true"}
+      - {node: server, detach: true, cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config > /tmp/sshd.log 2>&1"}
+  - id: sshd-ready
+    title: Wait for the listener
+    action: wait_for
+    wait_for: {node: server, cmd: "ss -ltn", regex: "172.33.0.2:22"}
+  - id: capture-start
+    title: Start capturing on the server's interface
+    action: capture_start
+  - id: connect
+    title: Connect with KexAlgorithms=curve25519-sha256
+    exec:
+      - {node: client, cmd: "install -m 600 /pqcw/ssh_config /tmp/ssh_config && ssh -F /tmp/ssh_config -v -o KexAlgorithms=curve25519-sha256 pqc-server 'echo PQC-OK' 2>&1", timeout: 20}
+    expect: {regex: "PQC-OK"}
+  - id: capture-stop
+    title: Stop the capture
+    action: capture_stop
+cleanup:
+  - id: stop-sshd
+    title: Stop sshd
+    exec:
+      - {node: server, cmd: "pkill -f 'sshd -D'; true"}
+assertions:
+  - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: curve25519-sha256}}
+  - {id: loud-warning, kind: step_output, expect: {step: connect, regex: "(?i)post-quantum"},
+     description: "OpenSSH warns that the session is not post-quantum"}
+expected_numbers:
+  note: "Compare KEX_ECDH_INIT size with ssh-kex-default: ~32 B vs ~1216 B of key material."

@@ -1,0 +1,3 @@
+# hostapd EAP user database: any identity may use EAP-TLS. Trust comes from the
+# client certificate chaining to the lab CA, checked in the TLS handshake.
+* TLS
