@@ -49,6 +49,7 @@ export function PacketDetail({ runId, n, canDecrypt, onClose }: Props) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [decrypt, setDecrypt] = useState(false);
+  const [tab, setTab] = useState<"decoded" | "hex">("decoded");
 
   useEffect(() => {
     setDetail(null);
@@ -72,8 +73,19 @@ export function PacketDetail({ runId, n, canDecrypt, onClose }: Props) {
       {!detail && !error && <p className="dim">Dissecting…</p>}
       {detail && (
         <div className="detail-body">
-          <div className="detail-tree"><Tree node={detail.tree} /></div>
-          <pre className="hex" aria-label="Raw bytes">{hexDump(detail.hex)}</pre>
+          <div className="tab-bar" role="tablist" aria-label="Packet view">
+            {(["decoded", "hex"] as const).map((t) => (
+              <button key={t} role="tab" id={`pd-tab-${t}`} aria-controls="pd-panel" aria-selected={tab === t}
+                      className={tab === t ? "is-current" : ""} onClick={() => setTab(t)}>
+                {t === "decoded" ? "Decoded" : `Hex (${detail.hex.replace(/[^0-9a-f]/gi, "").length / 2} B)`}
+              </button>
+            ))}
+          </div>
+          <div id="pd-panel" role="tabpanel" aria-labelledby={`pd-tab-${tab}`}>
+            {tab === "decoded"
+              ? <div className="detail-tree"><Tree node={detail.tree} /></div>
+              : <pre className="hex" aria-label="Raw bytes">{hexDump(detail.hex)}</pre>}
+          </div>
         </div>
       )}
     </section>

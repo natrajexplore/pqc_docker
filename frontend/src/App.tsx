@@ -4,6 +4,7 @@ import { ComparePanel } from "./components/ComparePanel";
 import { Ladder } from "./components/Ladder";
 import { PacketDetail } from "./components/PacketDetail";
 import { PacketTable } from "./components/PacketTable";
+import { ScenarioBrief } from "./components/ScenarioBrief";
 import { ScenarioRail } from "./components/ScenarioRail";
 import { StepLog } from "./components/StepLog";
 import { VerdictStrip } from "./components/VerdictStrip";
@@ -12,6 +13,12 @@ import type { Protocol, RunSummary, ScenarioInfo } from "./types";
 import { useRun } from "./useRun";
 
 type View = "run" | "compare" | "history";
+
+const PRESENTER_KEY = "pqcw.presenter";
+
+function savedPresenter(): boolean {
+  try { return localStorage.getItem(PRESENTER_KEY) === "1"; } catch { return false; }
+}
 
 export default function App() {
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
@@ -22,6 +29,7 @@ export default function App() {
   const [selectedPacket, setSelectedPacket] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [presenter, setPresenter] = useState(savedPresenter);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const live = useRun(runId);
@@ -47,6 +55,21 @@ export default function App() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PRESENTER_KEY, presenter ? "1" : "0"); } catch { /* private mode: not remembered */ }
+  }, [presenter]);
+  // P toggles presenter mode, Esc leaves it; ignored while typing in a field
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (e.ctrlKey || e.metaKey || e.altKey || el.closest("input, textarea, select")) return;
+      if (e.key === "p" || e.key === "P") setPresenter((v) => !v);
+      else if (e.key === "Escape") setPresenter(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // refresh the run list when a run finishes so compare/history see it
   useEffect(() => {
     if (live.status === "completed" || live.status === "failed" || live.status === "aborted") refresh();
@@ -90,13 +113,16 @@ export default function App() {
   };
 
   const title = scenario?.title ?? runSummary?.scenario_title ?? "Pick a scenario";
+  // Latest narration reached in this run; it stays up after a fast step finishes.
+  const narration = [...live.steps].reverse().find((s) => s.status !== "pending" && s.narration)?.narration ?? null;
+
   const statusWord = useMemo(() => ({
     idle: "Not run yet", queued: "Starting", running: "Running", analyzing: "Analyzing the capture",
     completed: "Finished", failed: "Failed", aborted: "Stopped",
   })[live.status], [live.status]);
 
   return (
-    <div className="app">
+    <div className={`app${presenter ? " presenter" : ""}`}>
       <header className="top">
         <h1>PQC WireScope</h1>
         <p className="tagline">Post-quantum handshakes, captured and explained.</p>
@@ -107,6 +133,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button className="quiet" onClick={() => setPresenter((v) => !v)} aria-pressed={presenter} title="Toggle with P, leave with Esc">
+          {presenter ? "Exit presenter" : "Presenter"}
+        </button>
         <button className="quiet" onClick={() => fileInput.current?.click()}>Import a capture</button>
         <input ref={fileInput} type="file" accept=".pcap,.pcapng,.cap" hidden onChange={(e) => onImport(e.target.files?.[0])} />
       </header>
@@ -140,10 +169,6 @@ export default function App() {
               <div>
                 <h2>{title}</h2>
                 {!scenario && runSummary?.imported && <p className="summary">{PROTOCOL_NAMES.mixed}, analyzed with the same decoder as live runs.</p>}
-                {scenario && <p className="summary">{scenario.summary}</p>}
-                {scenario && !scenario.available && (
-                  <p className="error">This stack is not running. Start it with <code>make up PROFILES="{scenario.stack}"</code>.</p>
-                )}
               </div>
               <div className="actions">
                 <p className={`run-status s-${live.status}`} aria-live="polite">{statusWord}{live.error ? `: ${live.error}` : ""}</p>
@@ -164,10 +189,14 @@ export default function App() {
               </div>
             </section>
 
+            {scenario && !presenter && <ScenarioBrief scenario={scenario} />}
+
             <VerdictStrip verdict={live.verdict} metrics={live.metrics} />
 
+            {presenter && narration && <p className="presenter-narration" aria-live="polite">{narration}</p>}
+
             <div className="wire">
-              <Ladder packets={live.packets} protocol={protocol} selected={selectedPacket} onSelect={setSelectedPacket} live={isLive} />
+              <Ladder packets={live.packets} protocol={protocol} selected={selectedPacket} onSelect={setSelectedPacket} live={isLive} exportName={runId ?? "ladder"} />
               <PacketTable packets={live.packets} selected={selectedPacket} onSelect={setSelectedPacket} follow={isLive} />
             </div>
 

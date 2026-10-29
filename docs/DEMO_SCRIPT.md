@@ -5,7 +5,12 @@ to click and what to say; the scenario narration fields show the key line on
 screen while the step runs, so you can follow the UI rather than notes.
 
 Before you start: `make up`, run every scenario once (warms images and PKI),
-open the UI at 127.0.0.1:8080, set the browser zoom so the ladder fills the screen.
+open the UI at 127.0.0.1:8080 and press **P** for presenter mode: the ladder goes
+full width and the current narration line becomes a large caption (Esc leaves it).
+For slides, *Copy SVG* / *Download SVG* under the ladder export it with the light
+theme.
+
+All numbers below are from real runs in this lab (see the README's measured results).
 
 ## 1. The problem (1 min, no clicks)
 
@@ -16,9 +21,9 @@ later deadline, but certificates and CAs live for years."
 
 ## 2. Classical IKEv2 (1.5 min) - `ipsec-kex-classical`
 
-Run it. Point at the ladder: four thin amber arrows, then ESP. "This is what
-your VPN looks like today. Note the two numbers on the right: about 1 KB and
-two round trips."
+Run it. Point at the ladder: two thin amber IKE_SA_INIT arrows, two grey
+(encrypted) IKE_AUTH arrows, then the ESP row. "This is what your VPN looks like
+today: about 1 KB of handshake and two round trips."
 
 ## 3. Hybrid ML-KEM (2 min) - `ipsec-kex-hybrid-mlkem768`
 
@@ -39,8 +44,11 @@ round trip. OpenSSL 3.5 does this by default."
 ## 5. The size explosion (2 min) - `ipsec-auth-ecdsa` vs `ipsec-auth-mldsa65`
 
 Run both, then compare. "Now authentication. ML-DSA-65 signatures are 3.3 KB.
-IKE_AUTH splits into many fragments. Cisco measured 7 frames becoming 20 on real
-routers - this is why ML-DSA needs a maintenance window, not just a config change."
+IKE_AUTH goes from 2 messages to 16 - eight fragments each way - and the handshake
+from about 5 KB to 23 KB. Cisco measured 7 frames becoming 20 on real routers - this
+is why ML-DSA needs a maintenance window, not just a config change." Note the
+authentication verdict says *endpoint*: IKE_AUTH is encrypted, so the certificate
+algorithm comes from the peer, not the wire.
 
 ## 6. The silent downgrade (2 min) - `macsec-downgrade-tls12`, then `macsec-downgrade-pinned-client`
 
@@ -52,7 +60,10 @@ same mistake fails closed. That's the behaviour you want."
 
 ## 7. SSH already did this (1 min) - `ssh-kex-default`, `ssh-kex-downgrade`
 
-"No configuration: ML-KEM by default. Force classical and OpenSSH warns you."
+"No configuration: ML-KEM by default." Then the downgrade: "This server only offers
+classical key exchange - and the client prints a WARNING that the session isn't
+post-quantum." (OpenSSH stays quiet if the *client* forces classical itself; it
+only warns when the other side imposes it.)
 
 ## 8. Close (1 min)
 

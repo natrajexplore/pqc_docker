@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { copySvg, downloadSvg, ladderSvgMarkup } from "../exportSvg";
 import type { Packet, Protocol } from "../types";
 import { LANES, bytes, tone } from "../format";
 
@@ -46,16 +47,38 @@ interface Props {
   selected: number | null;
   onSelect: (n: number) => void;
   live: boolean;
+  /** title + file name stem for the SVG export, e.g. the scenario id */
+  exportName: string;
 }
 
-export function Ladder({ packets, protocol, selected, onSelect, live }: Props) {
+export function Ladder({ packets, protocol, selected, onSelect, live, exportName }: Props) {
   const rows = useMemo(() => collapse(packets), [packets]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [exported, setExported] = useState("");
+  const canExport = rows.length > 0 && !live;
+  useEffect(() => setExported(""), [exportName]);
+
+  const exportAs = async (how: "copy" | "download") => {
+    if (!svgRef.current) return;
+    const markup = ladderSvgMarkup(svgRef.current, exportName);
+    try {
+      if (how === "copy") {
+        await copySvg(markup);
+        setExported("SVG copied. Paste it into Figma, Inkscape or a slide tool that accepts SVG.");
+      } else {
+        downloadSvg(markup, `${exportName}-ladder.svg`);
+        setExported("SVG downloaded.");
+      }
+    } catch {
+      setExported("The browser blocked clipboard access. Use Download SVG instead.");
+    }
+  };
   const [leftName, rightName] = LANES[protocol] ?? LANES.mixed;
   const height = TOP + Math.max(rows.length, 3) * ROW_H + 28;
 
   return (
     <figure className="ladder" aria-label="Handshake sequence diagram">
-      <svg viewBox={`0 0 ${W} ${height}`} role="img" preserveAspectRatio="xMidYMin meet">
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${height}`} role="img" preserveAspectRatio="xMidYMin meet">
         <text x={LEFT_X} y={22} className="lane-name" textAnchor="middle">{leftName}</text>
         <text x={RIGHT_X} y={22} className="lane-name" textAnchor="middle">{rightName}</text>
         <line x1={LEFT_X} x2={LEFT_X} y1={34} y2={height - 12} className="lane" />
@@ -120,7 +143,14 @@ export function Ladder({ packets, protocol, selected, onSelect, live }: Props) {
         })}
       </svg>
       <figcaption>
-        Arrow thickness grows with frame size. Dashed arrows are fragments. Times are milliseconds from the first captured frame.
+        <span>Arrow thickness grows with frame size. Dashed arrows are fragments. Times are milliseconds from the first captured frame.</span>
+        {canExport && (
+          <span className="ladder-export">
+            <button className="quiet" onClick={() => exportAs("copy")}>Copy SVG</button>
+            <button className="quiet" onClick={() => exportAs("download")}>Download SVG</button>
+            <span role="status" className="export-msg">{exported}</span>
+          </span>
+        )}
       </figcaption>
     </figure>
   );

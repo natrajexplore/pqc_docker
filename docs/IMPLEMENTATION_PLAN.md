@@ -76,8 +76,10 @@ fixture per protocol (IPsec x2, TLS, SSH, MACsec) in `backend/tests/fixtures/`.
 ## Phase 4 - Demo polish (day 5)
 
 - [ ] Walk `docs/DEMO_SCRIPT.md` end to end with a timer; trim anything that drags.
-- [ ] Add a "presenter mode" toggle that enlarges the ladder and narration.
-- [ ] Export: a one-click "copy ladder as SVG" for slides and LinkedIn posts.
+- [x] Add a "presenter mode" toggle that enlarges the ladder and narration
+      (P / Esc; built 2026-10-29, typecheck + build pass, not yet browser-tested).
+- [x] Export: a one-click "copy ladder as SVG" for slides and LinkedIn posts
+      (Copy SVG / Download SVG, light theme; not yet browser-tested).
 - [ ] Record a 3-minute screen capture of the classical -> hybrid -> ML-DSA story.
 
 ## Phase 5 - Stage 2: real Cisco gear (optional, needs hardware)
