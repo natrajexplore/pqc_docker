@@ -18,6 +18,7 @@ __pycache__/
 # Node
 node_modules/
 frontend/dist/
+frontend/e2e/out/
 
 # Packet captures (keep only curated test fixtures)
 *.pcap

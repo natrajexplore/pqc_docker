@@ -511,11 +511,16 @@ docker compose logs backend | grep <rid>     # everything one request did
 make test        # backend pytest + frontend typecheck/build (no Docker needed)
 make lint        # ruff, shellcheck, tsc
 make smoke       # every available scenario through the real API
+make test-ui     # headless-Chromium UI test against the running lab (needs mgmt + tls)
 ```
 
 - **Tests**: analyzer, IKEv2 decoder, orchestrator (fake Docker), API guard, and
   golden fixtures - real captures in `backend/tests/fixtures/` replayed through
   tshark -> normalizer -> assertions -> verdict (skipped where tshark is absent).
+- **UI test** (`frontend/e2e/ui.test.mjs`): drives the real UI in a throwaway
+  Playwright container on the mgmt network - runs a scenario, checks the step cards,
+  packet tabs, SVG export (in dark mode), presenter mode, and phone width. Screenshots
+  and the exported SVG land in `frontend/e2e/out/`. The first run pulls a ~3 GB image.
 - **Adding a scenario**: copy the closest file in `scenarios/` (file name = `id`),
   `POST /api/scenarios/reload`, run it, calibrate thresholds from the real capture
   and record what you saw in `expected_numbers`. See [CLAUDE.md](CLAUDE.md).

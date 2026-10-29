@@ -15,7 +15,7 @@ CAPTURE_VOL := pqcw_captures
 UPSTREAM    := vendor/juliogomez-pqc
 
 .PHONY: help bootstrap secrets preflight network build up down ps logs ui \
-        test test-backend test-frontend lint smoke clean nuke
+        test test-backend test-frontend test-ui lint smoke clean nuke
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/{printf "  \033[36m%-16s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
@@ -62,6 +62,9 @@ test-backend: ## Backend unit tests (no Docker needed)
 
 test-frontend: ## Frontend typecheck + build
 	cd frontend && npm install && npm run typecheck && npm run build
+
+test-ui: ## Headless-Chromium UI test against the running lab (needs mgmt + tls up)
+	./scripts/ui-test.sh
 
 lint: ## Lint Python + shell + TS
 	cd backend && ruff check app tests
