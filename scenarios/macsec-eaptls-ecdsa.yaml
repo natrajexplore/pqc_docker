@@ -93,10 +93,13 @@ assertions:
      description: "EAP-TLS ServerHello key_share is X25519MLKEM768"}
   - {id: version, kind: tls.version, expect: {version: "TLS 1.3"}}
   - {id: tls13-endpoint, kind: step_output, expect: {step: milestones, regex: "TLSv1\\.3"}}
-  - {id: frames, kind: eap.frames, expect: {min: 8, max: 24},
+  - {id: frames, kind: eap.frames, expect: {min: 12, max: 16},
      description: "Compact exchange (upstream: 14 EAPOL frames)"}
-  - {id: auth-cert, kind: step_output, expect: {step: cert-info, regex: "id-ecPublicKey"}}
+  - {id: auth-cert, kind: step_output, expect: {step: cert-info, regex: "Public Key Algorithm: id-ecPublicKey"}}
 expected_numbers:
+  upstream: "14 EAPOL frames, 483 B client cert, 1 client TLS fragment"
+  observed: "2026-10-29, hostapd/wpa_supplicant 2.12-devel, OpenSSL 3.5.7, EAPOL over a veth pair (no kernel MACsec on this host)"
   eapol_frames: 14
-  client_cert_der_bytes: 483
-  client_tls_fragments: 1
+  eap_fragments_each_way: 1
+  leaf_cert_der_bytes: 527
+  handshake_bytes: 5340   # varies by a few bytes per run: ECDSA signatures are variable-length DER

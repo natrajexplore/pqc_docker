@@ -3,7 +3,7 @@
 **Watch post-quantum handshakes happen, packet by packet.**
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
-![Scenarios verified](https://img.shields.io/badge/scenarios%20verified-14%2F18-brightgreen)
+![Scenarios verified](https://img.shields.io/badge/scenarios%20verified-18%2F18-brightgreen)
 ![Protocols](https://img.shields.io/badge/protocols-IKEv2%20%7C%20TLS%201.3%20%7C%20SSH%20%7C%20MACsec-informational)
 ![Algorithms](https://img.shields.io/badge/PQC-ML--KEM%20%7C%20ML--DSA-purple)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
@@ -79,15 +79,12 @@ in every protocol. These are the results from real runs in this lab:
 |---|---|---|---|---|
 | Hybrid key exchange | X25519 + ML-KEM in a **separate** IKE_INTERMEDIATE exchange | `X25519MLKEM768` inside the normal hellos | `mlkem768x25519-sha256` | hybrid ML-KEM inside EAP-TLS 1.3 |
 | Extra round trips | **+1** | 0 | 0 | 0 |
-| Handshake growth (KEX only) | 3.4x (ML-KEM-768), 4.3x (ML-KEM-1024) | key shares 32 B -> 1,216 / 1,120 B | KEX_ECDH_INIT 44 B -> 1,228 B | *to measure* |
+| Handshake growth (KEX only) | 3.4x (ML-KEM-768), 4.3x (ML-KEM-1024) | key shares 32 B -> 1,216 / 1,120 B | KEX_ECDH_INIT 44 B -> 1,228 B | key share 1,216 B in the EAP ClientHello; still 14 EAPOL frames |
 | Post-quantum by default? | no - configure proposals | yes in OpenSSL 3.5 | **yes**, zero config | needs `tls_flags` in hostapd |
 | PQ authentication tested | ML-DSA-44 / 65 certificates | ML-DSA-65 certificates | composite Ed25519 + ML-DSA-44 keys | ML-DSA-44 EAP certificates |
-| Auth growth | IKE_AUTH 2 -> 16 messages (ML-DSA-65) | certificate 527 B -> 5,652 B | KEX reply 1,276 B -> 5,044 B | *to measure* |
-| Best evidence for auth | endpoint (IKE_AUTH is encrypted) | **wire** (lab key log decrypts it) | **wire** (host key is cleartext) | wire via key log (planned) |
+| Auth growth | IKE_AUTH 2 -> 16 messages (ML-DSA-65) | certificate 527 B -> 5,652 B | KEX reply 1,276 B -> 5,044 B | 14 -> **42** EAPOL frames, 5.3 KB -> 25.1 KB (ML-DSA-44) |
+| Best evidence for auth | endpoint (IKE_AUTH is encrypted) | **wire** (lab key log decrypts it) | **wire** (host key is cleartext) | endpoint (EAP-TLS 1.3 encrypts the certificate) |
 | Downgrade behaviour | set by the configured proposals (not a scenario yet) | server's group choice visible on the wire | **loud**: client prints a WARNING | **silent** TLS 1.2 unless the client pins 1.3 |
-
-The MACsec column describes what its scenarios are built to show; it has not yet
-been run on real containers (see [project status](#project-status)).
 
 The pattern: post-quantum key exchange is cheap in bytes and free in round trips
 everywhere except IKEv2; post-quantum authentication is where the size really
@@ -193,6 +190,30 @@ key travels in cleartext, so both pillars are *wire* evidence. OpenSSH prints
 *server* imposes the classical choice; a client that forces it with
 `-o KexAlgorithms` is treated as deliberate and gets no warning.
 
+### MACsec / 802.1X EAP-TLS (hostapd 2.12-devel, OpenSSL 3.5.7)
+
+| Scenario | EAPOL frames | Handshake bytes | KEX verdict | Outcome |
+|---|---:|---:|---|---|
+| EAP-TLS 1.3, ECDSA certificates | 14 | 5,340 | pq-hybrid X25519MLKEM768 (wire) | EAP-Success |
+| EAP-TLS 1.3, ML-DSA-44 certificates | **42** (8 fragments each way) | 25,139 | pq-hybrid (wire) | EAP-Success, both pillars PQ |
+| Authenticator without `tls_flags` | 12 | 4,417 | **downgraded to TLS 1.2** (wire) | EAP-Success - nobody is told |
+| Same, but the client pins TLS 1.3 | 8 | 1,630 | refused | EAP-Failure: hostapd logs `fatal:protocol version` |
+
+MACsec's quantum exposure is the EAP-TLS handshake that produces the
+MSK -> CAK -> SAK key chain. Three lessons from the runs, all matching upstream's
+numbers exactly (14 vs 42 frames):
+
+- **Hybrid ML-KEM is free here**: the 1,216 B key share fits the existing EAP
+  fragmentation, and the frame count stays at 14.
+- **ML-DSA certificates triple the EAPOL exchange** (14 -> 42 frames, 4.7x the bytes),
+  which matters on switch ports that authenticate many devices at once.
+- **The dangerous case is silent.** An authenticator that never enabled TLS 1.3
+  negotiates classical TLS 1.2 and still reports success. Only the wire - or a client
+  that pins TLS 1.3 and fails closed - shows the downgrade.
+
+These are handshake results over a veth pair; the kernel MACsec data plane
+(ethertype 0x88e5) needs `CONFIG_MACSEC`, which Docker Desktop's kernel lacks.
+
 ---
 
 ## Scenarios
@@ -218,10 +239,10 @@ against the capture.
 | `ssh` | `ssh-kex-default` | key exchange | `mlkem768x25519-sha256` is OpenSSH 10.4's default | yes |
 | | `ssh-kex-downgrade` | key exchange | a server that only offers classical KEX - and OpenSSH warns out loud | yes |
 | | `ssh-auth-composite` | both | composite Ed25519 + ML-DSA-44 host and user keys | yes |
-| `macsec` | `macsec-eaptls-ecdsa` | key exchange | EAP-TLS 1.3 with hybrid ML-KEM | pending |
-| | `macsec-eaptls-mldsa44` | both | ML-DSA-44 EAP certificates (about 3x the EAPOL frames) | pending |
-| | `macsec-downgrade-tls12` | key exchange | the **silent** downgrade to classical TLS 1.2 | pending |
-| | `macsec-downgrade-pinned-client` | key exchange | a client pin turns the downgrade into a loud failure | pending |
+| `macsec` | `macsec-eaptls-ecdsa` | key exchange | EAP-TLS 1.3 with hybrid ML-KEM | yes |
+| | `macsec-eaptls-mldsa44` | both | ML-DSA-44 EAP certificates (about 3x the EAPOL frames) | yes |
+| | `macsec-downgrade-tls12` | key exchange | the **silent** downgrade to classical TLS 1.2 | yes |
+| | `macsec-downgrade-pinned-client` | key exchange | a client pin turns the downgrade into a loud failure | yes |
 
 **Compare** any two runs side by side (bytes, frames, flights, fragments,
 duration), and **import** a pcap from a real router (IOS XE Embedded Packet
@@ -563,8 +584,8 @@ in [CLAUDE.md](CLAUDE.md#adding-a-scenario) and [docs/SCENARIOS.md](docs/SCENARI
 | Scaffold, analyzer, orchestrator, UI, offline tests | done |
 | 1 - stacks up (mgmt + IPsec), socket proxy pinned, capture fields verified | done |
 | 2 - IPsec key exchange and authentication on real containers | done: 7/7 scenarios pass, numbers recorded, golden fixtures added |
-| 3 - calibrate TLS, SSH, MACsec | in progress: TLS 4/4 and SSH 3/3 pass on real containers; MACsec next |
-| 4 - demo polish (presenter mode, ladder export) | planned |
+| 3 - calibrate TLS, SSH, MACsec | done: **all 18 scenarios pass in one run across all five stacks**; golden fixture per protocol |
+| 4 - demo polish (presenter mode, ladder export) | next |
 | 5 - real Cisco gear (EPC import, C8000 compare) | optional |
 
 Tracked in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).

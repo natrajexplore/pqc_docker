@@ -23,6 +23,7 @@ EXPECTED_KEX = {
     "ipsec-kex-hybrid-mlkem768": "pq-hybrid",
     "tls-kex-hybrid": "pq-hybrid",
     "ssh-kex-default": "pq-hybrid",
+    "macsec-eaptls-ecdsa": "pq-hybrid",
 }
 
 pytestmark = pytest.mark.skipif(shutil.which("tshark") is None, reason="tshark not installed")

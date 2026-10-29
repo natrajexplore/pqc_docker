@@ -73,7 +73,7 @@ assertions:
   - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: mlkem768x25519-sha256}}
   - {id: hostkey-wire, kind: ssh.negotiated_host_key, expect: {contains: mldsa},
      description: "Server host key algorithm (cleartext KEXINIT) is the composite ML-DSA"}
-  - {id: auth-endpoint, kind: step_output, expect: {step: connect, regex: "(?i)host key algorithm: .*mldsa"}}
+  - {id: auth-endpoint, kind: step_output, expect: {step: connect, regex: 'kex: host key algorithm: ssh-mldsa44-ed25519@openssh\.com'}}
 expected_numbers:
   ml_dsa_44_public_key_bytes: 1312
   ml_dsa_44_signature_bytes: 2420

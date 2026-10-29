@@ -92,9 +92,14 @@ cleanup:
 assertions:
   - {id: group, kind: tls.server_group, expect: {group: X25519MLKEM768}}
   - {id: version, kind: tls.version, expect: {version: "TLS 1.3"}}
-  - {id: frames, kind: eap.frames, expect: {min: 28},
+  - {id: frames, kind: eap.frames, expect: {min: 36, max: 48},
      description: "ML-DSA certificates triple the EAPOL frame count (upstream: 42)"}
-  - {id: auth-cert, kind: step_output, expect: {step: cert-info, regex: "(?i)ML-DSA-44"}}
+  - {id: auth-cert, kind: step_output, expect: {step: cert-info, regex: "Public Key Algorithm: ML-DSA-44"}}
 expected_numbers:
+  upstream: "42 EAPOL frames, 8 client TLS fragments"
+  observed: "2026-10-29, hostapd/wpa_supplicant 2.12-devel, OpenSSL 3.5.7, EAPOL over a veth pair (no kernel MACsec on this host)"
   eapol_frames: 42
-  client_tls_fragments: 8
+  eap_fragments_each_way: 8
+  leaf_cert_der_bytes: 4123
+  handshake_bytes: 25139
+  bytes_vs_ecdsa: 4.7

@@ -70,6 +70,11 @@ steps:
     title: The endpoint's view
     exec:
       - {node: supplicant, cmd: "grep -aiE 'alert|protocol version|CTRL-EVENT-EAP-(SUCCESS|FAILURE)' /tmp/wpa.log | uniq | head -20"}
+  - id: server-reason
+    title: Why the authenticator refused
+    narration: "hostapd only speaks TLS 1.2 here; the pinned client offers only 1.3, so the server raises a protocol_version alert and sends EAP-Failure."
+    exec:
+      - {node: authenticator, cmd: "grep -a 'SSL3 alert' /tmp/hostapd.log | tail -3", allow_fail: true}
   - id: settle
     title: Let the last EAPOL frames land
     action: sleep
@@ -89,5 +94,10 @@ assertions:
      description: "No classical ServerHello was ever accepted"}
   - {id: no-success, kind: step_output, expect: {step: milestones, regex: "CTRL-EVENT-EAP-SUCCESS", absent: true},
      description: "EAP did not succeed - fail closed"}
+  - {id: refused-for-version, kind: step_output, expect: {step: server-reason, regex: "fatal:protocol version"},
+     description: "The refusal was the TLS version pin, not some other error (endpoint evidence: hostapd log)"}
 expected_numbers:
   note: "Pair this with macsec-downgrade-tls12 in the compare view: silent vs loud."
+  observed: "2026-10-29, hostapd/wpa_supplicant 2.12-devel, OpenSSL 3.5.7, EAPOL over a veth pair (no kernel MACsec on this host)"
+  eapol_frames: 8
+  outcome: "EAP-Failure after the ClientHello; hostapd logs fatal protocol_version"

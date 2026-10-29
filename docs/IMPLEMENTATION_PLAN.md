@@ -59,16 +59,19 @@ classical-vs-hybrid byte ratio.
 
 For each stack (`ipsec-auth`, `tls`, `ssh`, `macsec`):
 
-- [ ] Run each scenario, read every failed assertion, and decide: is the code
+- [x] Run each scenario, read every failed assertion, and decide: is the code
       wrong, the threshold wrong, or the regex wrong? Fix the right one.
-- [ ] Tighten loose regexes (`(?i)ml[-_ ]?dsa[-_ ]?65`) to the real output.
-- [ ] Record observed numbers in `expected_numbers`.
-- [ ] Add one golden fixture per protocol.
+- [x] Tighten loose regexes (`(?i)ml[-_ ]?dsa[-_ ]?65`) to the real output.
+- [x] Record observed numbers in `expected_numbers`.
+- [x] Add one golden fixture per protocol.
 - [x] TLS: confirm the key-log decryption path produces ML-DSA OIDs in
       `metrics.protocol.tls.decrypted` for `tls-auth-mldsa65-mtls`.
-- [ ] MACsec: confirm 14 vs ~42 EAPOL frames (upstream numbers).
+- [x] MACsec: confirm 14 vs ~42 EAPOL frames (upstream numbers).
 
 Done when: `make smoke` passes on all five stacks.
+
+Done 2026-10-29: all 18 scenarios pass in one run across all five stacks; one golden
+fixture per protocol (IPsec x2, TLS, SSH, MACsec) in `backend/tests/fixtures/`.
 
 ## Phase 4 - Demo polish (day 5)
 

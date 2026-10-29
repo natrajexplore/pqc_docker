@@ -95,3 +95,6 @@ assertions:
      description: "EAP reports success anyway - the downgrade is silent"}
 expected_numbers:
   note: "This run is SUPPOSED to be red. Every assertion passing means the UI caught the downgrade."
+  observed: "2026-10-29, hostapd/wpa_supplicant 2.12-devel, OpenSSL 3.5.7, EAPOL over a veth pair (no kernel MACsec on this host)"
+  eapol_frames: 12
+  negotiated: "TLS 1.2, no key_share - and EAP-SUCCESS"

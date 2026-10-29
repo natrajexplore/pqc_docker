@@ -76,7 +76,7 @@ assertions:
      description: "ClientHello signature_algorithms advertises ML-DSA (cleartext)"}
   - {id: auth-wire, kind: tls.decrypted_cert_pq, expect: {post_quantum: true},
      description: "Decrypted Certificate messages carry ML-DSA OIDs"}
-  - {id: auth-endpoint, kind: step_output, expect: {step: peer-sig, regex: "(?i)ML-DSA-65"}}
+  - {id: auth-endpoint, kind: step_output, expect: {step: peer-sig, regex: 'Public Key Algorithm: ML-DSA-65'}}
 expected_numbers:
   ml_dsa_65_public_key_bytes: 1952
   ml_dsa_65_signature_bytes: 3309
