@@ -1,14 +1,17 @@
 id: ssh-kex-downgrade
-title: "SSH: forced classical key exchange (and OpenSSH says so)"
+title: "SSH: server forces classical key exchange (and OpenSSH says so)"
 protocol: ssh
 stack: ssh
 pillar: key-exchange
 group: ssh
 order: 20
 summary: >
-  Simulate an old peer by forcing curve25519-sha256. Unlike EAP-TLS, SSH does not
-  downgrade silently: recent OpenSSH warns that the connection is not using a
-  post-quantum key exchange. The wire proves the classical choice; the verdict goes red.
+  Simulate an old or misconfigured server that only offers curve25519-sha256, while
+  the client keeps its post-quantum defaults. Unlike EAP-TLS, SSH does not downgrade
+  silently: OpenSSH warns that the connection is not using a post-quantum key exchange.
+  (It warns only when the peer imposes the classical choice - forcing it on the client
+  side with -o KexAlgorithms is treated as deliberate and stays quiet.) The wire proves
+  the classical choice; the verdict goes red.
 upstream_lab: learn/ssh
 nodes:
   server: pqcw-ssh-server
@@ -30,10 +33,10 @@ steps:
     exec:
       - {node: server, cmd: "sh /pqcw/ssh-keys.sh ed25519", timeout: 30}
   - id: sshd
-    title: Start sshd
+    title: Start sshd offering only classical key exchange
     exec:
-      - {node: server, cmd: "pkill -f '[s]shd -D' ; sleep 0.3; true"}
-      - {node: server, detach: true, cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config > /tmp/sshd.log 2>&1"}
+      - {node: server, cmd: "if [ -f /run/sshd.pid ]; then kill $(cat /run/sshd.pid); rm -f /run/sshd.pid; fi; sleep 0.3; true"}
+      - {node: server, detach: true, cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config -o KexAlgorithms=curve25519-sha256 > /tmp/sshd.log 2>&1"}
   - id: sshd-ready
     title: Wait for the listener
     action: wait_for
@@ -42,9 +45,10 @@ steps:
     title: Start capturing on the server's interface
     action: capture_start
   - id: connect
-    title: Connect with KexAlgorithms=curve25519-sha256
+    title: Connect with default (post-quantum first) client settings
+    narration: "The client offers mlkem768x25519-sha256 first; the server's KEXINIT doesn't have it. Watch for the WARNING."
     exec:
-      - {node: client, cmd: "install -m 600 /pqcw/ssh_config /tmp/ssh_config && ssh -F /tmp/ssh_config -v -o KexAlgorithms=curve25519-sha256 pqc-server 'echo PQC-OK' 2>&1", timeout: 20}
+      - {node: client, cmd: "install -m 600 /pqcw/ssh_config /tmp/ssh_config && ssh -F /tmp/ssh_config -v pqc-server 'echo PQC-OK' 2>&1", timeout: 20}
     expect: {regex: "PQC-OK"}
   - id: capture-stop
     title: Stop the capture
@@ -53,10 +57,14 @@ cleanup:
   - id: stop-sshd
     title: Stop sshd
     exec:
-      - {node: server, cmd: "pkill -f '[s]shd -D'; true"}
+      - {node: server, cmd: "if [ -f /run/sshd.pid ]; then kill $(cat /run/sshd.pid); rm -f /run/sshd.pid; fi; true"}
 assertions:
   - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: curve25519-sha256}}
-  - {id: loud-warning, kind: step_output, expect: {step: connect, regex: "(?i)post-quantum"},
+  - {id: loud-warning, kind: step_output, expect: {step: connect, regex: 'WARNING: connection is not using a post-quantum key exchange'},
      description: "OpenSSH warns that the session is not post-quantum"}
 expected_numbers:
   note: "Compare KEX_ECDH_INIT size with ssh-kex-default: ~32 B vs ~1216 B of key material."
+  observed: "2026-10-29, OpenSSH 10.4p1; SSH message sizes are the decoded payloads (exact), frame bytes depend on TCP segmentation"
+  kex_ecdh_init_bytes: 44
+  kex_ecdh_reply_bytes: 188
+  handshake_bytes: 3690

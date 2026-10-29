@@ -32,7 +32,7 @@ steps:
   - id: sshd
     title: Start sshd
     exec:
-      - {node: server, cmd: "pkill -f '[s]shd -D' ; sleep 0.3; true"}
+      - {node: server, cmd: "if [ -f /run/sshd.pid ]; then kill $(cat /run/sshd.pid); rm -f /run/sshd.pid; fi; sleep 0.3; true"}
       - {node: server, detach: true, cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config > /tmp/sshd.log 2>&1"}
   - id: sshd-ready
     title: Wait for the listener
@@ -59,7 +59,7 @@ cleanup:
   - id: stop-sshd
     title: Stop sshd
     exec:
-      - {node: server, cmd: "pkill -f '[s]shd -D'; true"}
+      - {node: server, cmd: "if [ -f /run/sshd.pid ]; then kill $(cat /run/sshd.pid); rm -f /run/sshd.pid; fi; true"}
 assertions:
   - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: mlkem768x25519-sha256},
      description: "Derived from both cleartext KEXINITs"}
@@ -68,3 +68,7 @@ assertions:
 expected_numbers:
   client_kex_init_payload_bytes: "1216 (32 X25519 + 1184 ML-KEM-768 key)"
   server_kex_reply_payload_bytes: "1120 + host key + signature"
+  observed: "2026-10-29, OpenSSH 10.4p1; SSH message sizes are the decoded payloads (exact), frame bytes depend on TCP segmentation"
+  kex_ecdh_init_bytes: 1228
+  kex_ecdh_reply_bytes: 1276
+  handshake_bytes: 6130

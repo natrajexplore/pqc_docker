@@ -22,6 +22,7 @@ EXPECTED_KEX = {
     "ipsec-kex-classical": "classical",
     "ipsec-kex-hybrid-mlkem768": "pq-hybrid",
     "tls-kex-hybrid": "pq-hybrid",
+    "ssh-kex-default": "pq-hybrid",
 }
 
 pytestmark = pytest.mark.skipif(shutil.which("tshark") is None, reason="tshark not installed")
@@ -59,5 +60,6 @@ def test_fixture_replays_to_the_recorded_verdict(pcap: Path, store: ScenarioStor
         assert metrics.handshake_bytes == en["hello_frames_bytes"]
         assert metrics.protocol["tls"]["server_key_share_len"] == en["server_key_share_bytes_observed"]
     else:
-        assert metrics.handshake_frames == en["handshake_frames"]
         assert metrics.handshake_bytes == en["handshake_bytes"]
+        if "handshake_frames" in en:
+            assert metrics.handshake_frames == en["handshake_frames"]
