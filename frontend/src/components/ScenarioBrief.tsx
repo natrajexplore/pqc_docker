@@ -49,10 +49,10 @@ export function ScenarioBrief({ scenario }: { scenario: ScenarioInfo }) {
         <ul className="needs-list">
           <li className={scenario.available ? "ok" : "missing"}>
             <span aria-hidden="true">{scenario.available ? "✓" : "✕"}</span>
-            The <code>{scenario.stack}</code> stack is {scenario.available ? "running" : "not running"}
+            <span>The <code>{scenario.stack}</code> stack is {scenario.available ? "running" : "not running"}</span>
           </li>
           {scenario.missing.map((c) => (
-            <li key={c} className="missing"><span aria-hidden="true">✕</span> <code>{c}</code> is not up</li>
+            <li key={c} className="missing"><span aria-hidden="true">✕</span><span><code>{c}</code> is not up</span></li>
           ))}
         </ul>
         {!scenario.available && (

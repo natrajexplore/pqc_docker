@@ -24,10 +24,11 @@ function weight(len: number): number {
   return Math.max(1.25, Math.min(14, Math.sqrt(len) / 3.6));
 }
 
-function collapse(packets: Packet[]): Row[] {
+function collapse(packets: Packet[], hideControl: boolean): Row[] {
   const rows: Row[] = [];
   for (const p of packets) {
     if (p.kind === "other" || p.proto === "ARP") continue;
+    if (hideControl && p.kind === "control") continue;
     const last = rows[rows.length - 1];
     if (p.kind === "data" && last?.type === "data" && last.proto === p.proto) {
       last.count += 1;
@@ -49,10 +50,12 @@ interface Props {
   live: boolean;
   /** title + file name stem for the SVG export, e.g. the scenario id */
   exportName: string;
+  /** presenter mode: drop TCP SYN/ACK/FIN-style control rows so the handshake fits one screen */
+  hideControl?: boolean;
 }
 
-export function Ladder({ packets, protocol, selected, onSelect, live, exportName }: Props) {
-  const rows = useMemo(() => collapse(packets), [packets]);
+export function Ladder({ packets, protocol, selected, onSelect, live, exportName, hideControl = false }: Props) {
+  const rows = useMemo(() => collapse(packets, hideControl), [packets, hideControl]);
   const svgRef = useRef<SVGSVGElement>(null);
   const [exported, setExported] = useState("");
   const canExport = rows.length > 0 && !live;
@@ -143,7 +146,10 @@ export function Ladder({ packets, protocol, selected, onSelect, live, exportName
         })}
       </svg>
       <figcaption>
-        <span>Arrow thickness grows with frame size. Dashed arrows are fragments. Times are milliseconds from the first captured frame.</span>
+        <span>
+          Arrow thickness grows with frame size. Dashed arrows are fragments. Times are milliseconds from the first captured frame.
+          {hideControl && " TCP control packets are hidden here; the packet table has every frame."}
+        </span>
         {canExport && (
           <span className="ladder-export">
             <button className="quiet" onClick={() => exportAs("copy")}>Copy SVG</button>

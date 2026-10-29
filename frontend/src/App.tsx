@@ -196,7 +196,7 @@ export default function App() {
             {presenter && narration && <p className="presenter-narration" aria-live="polite">{narration}</p>}
 
             <div className="wire">
-              <Ladder packets={live.packets} protocol={protocol} selected={selectedPacket} onSelect={setSelectedPacket} live={isLive} exportName={runId ?? "ladder"} />
+              <Ladder packets={live.packets} protocol={protocol} selected={selectedPacket} onSelect={setSelectedPacket} live={isLive} exportName={runId ?? "ladder"} hideControl={presenter} />
               <PacketTable packets={live.packets} selected={selectedPacket} onSelect={setSelectedPacket} follow={isLive} />
             </div>
 

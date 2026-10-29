@@ -585,7 +585,7 @@ in [CLAUDE.md](CLAUDE.md#adding-a-scenario) and [docs/SCENARIOS.md](docs/SCENARI
 | 1 - stacks up (mgmt + IPsec), socket proxy pinned, capture fields verified | done |
 | 2 - IPsec key exchange and authentication on real containers | done: 7/7 scenarios pass, numbers recorded, golden fixtures added |
 | 3 - calibrate TLS, SSH, MACsec | done: **all 18 scenarios pass in one run across all five stacks**; golden fixture per protocol |
-| 4 - demo polish (presenter mode, ladder export) | in progress: presenter mode, SVG export and procedure-style step view built (not yet browser-tested); timed rehearsal and recording to do |
+| 4 - demo polish (presenter mode, ladder export) | in progress: presenter mode, SVG export and procedure-style views done and tested in headless Chromium (42/42 checks); timed rehearsal and recording to do |
 | 5 - real Cisco gear (EPC import, C8000 compare) | optional |
 
 Tracked in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).

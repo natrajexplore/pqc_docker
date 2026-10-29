@@ -36,15 +36,20 @@ export function ladderSvgMarkup(svg: SVGSVGElement, title: string): string {
   try {
     // transparent hit areas (and the selection highlight drawn on them) are UI only
     copy.querySelectorAll(".hit").forEach((el) => el.remove());
-    for (const el of [copy, ...Array.from(copy.querySelectorAll<SVGElement>("*"))]) {
+    // Read every style before touching any class: rules like `.row.pq .arrow` stop
+    // matching a child once its parent's class is gone.
+    const els = [copy, ...Array.from(copy.querySelectorAll<SVGElement>("*"))];
+    const styles = els.map((el) => {
       const cs = getComputedStyle(el);
-      for (const p of PROPS) {
-        const v = cs.getPropertyValue(p);
+      return PROPS.map((p) => [p, cs.getPropertyValue(p)] as const);
+    });
+    els.forEach((el, i) => {
+      for (const [p, v] of styles[i]) {
         if (v && v !== "none" && !(p === "opacity" && v === "1")) el.setAttribute(p, v);
         else if (v === "none" && (p === "fill" || p === "stroke")) el.setAttribute(p, "none");
       }
       for (const a of ["class", "tabindex", "role", "aria-label"]) el.removeAttribute(a);
-    }
+    });
     const vb = copy.viewBox.baseVal;
     const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     bg.setAttribute("width", String(vb.width));

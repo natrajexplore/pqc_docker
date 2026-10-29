@@ -315,8 +315,6 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 /* ------------------------------------------------------------ responsive */
 @media (max-width: 1180px) {
   .wire, .lower { grid-template-columns: 1fr; }
-  .brief { grid-template-columns: 1fr 1fr; }
-  .brief .about { grid-column: 1 / -1; }
   .verdict { grid-template-columns: 1fr 1fr; }
   .cost { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
 }
@@ -329,7 +327,6 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .scenario-head { flex-direction: column; }
   .actions { align-items: flex-start; }
   .verdict { grid-template-columns: 1fr; }
-  .brief { grid-template-columns: 1fr; }
   .cost { grid-template-columns: 1fr 1fr; }
   .compare-pick select { min-width: 0; width: 100%; }
 }
@@ -359,6 +356,14 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .numbers td { font-family: var(--mono); text-align: right; padding: 3px 0; vertical-align: top; word-break: break-word; }
 .numbers tr + tr th, .numbers tr + tr td { border-top: 1px solid var(--rule); }
 .numbers .note { font-size: 12px; }
+/* after the base rules on purpose: same specificity, so order decides */
+@media (max-width: 1180px) {
+  .brief { grid-template-columns: 1fr 1fr; }
+  .brief .about { grid-column: 1 / -1; }
+}
+@media (max-width: 760px) {
+  .brief { grid-template-columns: 1fr; }
+}
 
 /* -------------------------------------------------------- presenter mode */
 /* For a projector: rail, packet table and step list go; the verdict and the
@@ -368,9 +373,20 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .app.presenter .tagline,
 .app.presenter .packets,
 .app.presenter .lower,
-.app.presenter .scenario-head .summary { display: none; }
-.app.presenter .wire { grid-template-columns: minmax(0, 1fr); }
-.app.presenter .ladder { max-width: 1280px; width: 100%; margin: 0 auto; }
+.app.presenter .scenario-head .summary,
+.app.presenter .scenario-head .actions a { display: none; }
+/* The run view becomes a column whose last item - the ladder - takes exactly the
+   height that is left, so the whole handshake is on screen whatever its length.
+   The SVG keeps its aspect ratio (viewBox, xMidYMin meet). */
+.app.presenter .main:has(.wire) { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 16px; }
+.app.presenter .wire { display: flex; flex: 1; min-height: 0; align-items: stretch; }
+.app.presenter .ladder {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  max-width: 1280px; width: 100%; margin: 0 auto;
+}
+.app.presenter .ladder svg { flex: 1; min-height: 0; height: 100%; }
+.app.presenter .pillar-why { display: none; }
+.app.presenter .presenter-narration { margin: 12px auto; }
 .app.presenter .scenario-head h2 { font-size: 34px; max-width: none; }
 .presenter-narration {
   margin: 18px auto; max-width: 1280px; padding: 14px 20px;
