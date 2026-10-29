@@ -32,7 +32,7 @@ steps:
   - id: sshd
     title: Start sshd
     exec:
-      - {node: server, cmd: "pkill -f 'sshd -D' ; sleep 0.3; true"}
+      - {node: server, cmd: "pkill -f '[s]shd -D' ; sleep 0.3; true"}
       - {node: server, detach: true, cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config > /tmp/sshd.log 2>&1"}
   - id: sshd-ready
     title: Wait for the listener
@@ -53,7 +53,7 @@ cleanup:
   - id: stop-sshd
     title: Stop sshd
     exec:
-      - {node: server, cmd: "pkill -f 'sshd -D'; true"}
+      - {node: server, cmd: "pkill -f '[s]shd -D'; true"}
 assertions:
   - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: curve25519-sha256}}
   - {id: loud-warning, kind: step_output, expect: {step: connect, regex: "(?i)post-quantum"},

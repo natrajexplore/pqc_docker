@@ -19,7 +19,7 @@ LIVE_FIELDS: list[str] = [
     # ESP data plane
     "esp.spi", "esp.sequence",
     # TLS 1.3 (also inside EAP-TLS)
-    "tls.record.content_type", "tls.record.length", "tls.handshake.type",
+    "tls.record.content_type", "tls.record.opaque_type", "tls.record.length", "tls.handshake.type",
     "tls.handshake.length", "tls.handshake.version", "tls.handshake.extensions.supported_version",
     "tls.handshake.extensions_supported_group",
     "tls.handshake.extensions_key_share_group",

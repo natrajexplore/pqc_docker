@@ -21,6 +21,7 @@ FIXTURES = sorted((Path(__file__).parent / "fixtures").glob("*.pcapng"))
 EXPECTED_KEX = {
     "ipsec-kex-classical": "classical",
     "ipsec-kex-hybrid-mlkem768": "pq-hybrid",
+    "tls-kex-hybrid": "pq-hybrid",
 }
 
 pytestmark = pytest.mark.skipif(shutil.which("tshark") is None, reason="tshark not installed")
@@ -53,5 +54,10 @@ def test_fixture_replays_to_the_recorded_verdict(pcap: Path, store: ScenarioStor
     verdict = compute_verdict(metrics, sc.declared, results)
     assert verdict.key_exchange.status == EXPECTED_KEX[sc.id]
     assert verdict.key_exchange.evidence == "wire"
-    assert metrics.handshake_frames == sc.expected_numbers["handshake_frames"]
-    assert metrics.handshake_bytes == sc.expected_numbers["handshake_bytes"]
+    en = sc.expected_numbers
+    if sc.protocol == "tls":
+        assert metrics.handshake_bytes == en["hello_frames_bytes"]
+        assert metrics.protocol["tls"]["server_key_share_len"] == en["server_key_share_bytes_observed"]
+    else:
+        assert metrics.handshake_frames == en["handshake_frames"]
+        assert metrics.handshake_bytes == en["handshake_bytes"]

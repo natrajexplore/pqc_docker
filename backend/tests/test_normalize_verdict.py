@@ -104,9 +104,11 @@ def test_tls_hybrid_and_downgrade():
                   tls_handshake_extensions_key_share_group="4588",
                   tls_handshake_extensions_key_share_key_exchange_length="1120"),
         tls_frame(3, 1.01, TC, TS, flen=120, tls_record_content_type="23"),
+        tls_frame(4, 1.02, TS, TC, flen=90, tls_record_opaque_type="23"),  # Wireshark 4.4 spelling
     ], left=TC, right=TS)
     assert "pq-kex-offer" in hybrid[0].tags and "X25519MLKEM768:1216B" in hybrid[0].label
     assert "pq-kex" in hybrid[1].tags and hybrid[2].kind == "data"
+    assert hybrid[3].kind == "data" and "encrypted" in hybrid[3].tags
     m = compute_metrics(hybrid)
     assert m.protocol["tls"]["server_group"] == "X25519MLKEM768"
     assert m.protocol["tls"]["server_key_share_len"] == 1120

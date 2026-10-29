@@ -34,7 +34,7 @@ steps:
   - id: server
     title: Start openssl s_server requiring a client certificate
     exec:
-      - {node: server, cmd: "pkill -f 'openssl s_server' ; sleep 0.3; true"}
+      - {node: server, cmd: "pkill -f '[o]penssl s_server' ; sleep 0.3; true"}
       - {node: server, detach: true,
          cmd: "openssl s_server -accept 172.32.0.2:4433 -www -tls1_3 -groups X25519MLKEM768:x25519 -cert /pki/active/server.crt -key /pki/active/server.key -CAfile /pki/active/ca.crt -Verify 1 -verify_return_error > /tmp/s_server.log 2>&1"}
   - id: server-ready
@@ -69,7 +69,7 @@ cleanup:
   - id: stop-server
     title: Stop s_server
     exec:
-      - {node: server, cmd: "pkill -f 'openssl s_server'; true"}
+      - {node: server, cmd: "pkill -f '[o]penssl s_server'; true"}
 assertions:
   - {id: group, kind: tls.server_group, expect: {group: X25519MLKEM768}}
   - {id: offers-mldsa, kind: count, expect: {proto: TLS, tag: pq-auth-offer, min: 1},
@@ -80,3 +80,7 @@ assertions:
 expected_numbers:
   ml_dsa_65_public_key_bytes: 1952
   ml_dsa_65_signature_bytes: 3309
+  observed: "2026-10-29, OpenSSL 3.5.7, Wireshark 4.4; key share / certificate sizes are exact, frame bytes depend on TCP segmentation (veth GRO coalesces segments above MTU)"
+  certificate_message_bytes: "server 5652, client 5614 (decrypted with lab key log)"
+  certificate_vs_ecdsa: 10.7
+  hello_frames_bytes: 5664

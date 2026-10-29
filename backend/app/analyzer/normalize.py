@@ -234,7 +234,9 @@ class Normalizer:
     # --------------------------------------------------------------- TLS --
     def _tls_fields(self, layers: dict) -> dict:
         hs_types = [cp.name(cp.TLS_HANDSHAKE_TYPE, to_int(x)) for x in FA(layers, "tls.handshake.type")]
-        content = [cp.name(cp.TLS_CONTENT_TYPE, to_int(x)) for x in FA(layers, "tls.record.content_type")]
+        # Wireshark 4.4 reports encrypted TLS 1.3 records' outer type as opaque_type, not content_type
+        content = [cp.name(cp.TLS_CONTENT_TYPE, to_int(x))
+                   for x in FA(layers, "tls.record.content_type") + FA(layers, "tls.record.opaque_type")]
         groups = [cp.name(cp.TLS_GROUP, to_int(x)) for x in FA(layers, "tls.handshake.extensions_supported_group")]
         ks_groups = [cp.name(cp.TLS_GROUP, to_int(x)) for x in FA(layers, "tls.handshake.extensions_key_share_group")]
         ks_lens = [to_int(x) for x in FA(layers, "tls.handshake.extensions_key_share_key_exchange_length")]

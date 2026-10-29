@@ -45,7 +45,7 @@ steps:
   - id: sshd
     title: Start sshd accepting only the composite algorithm
     exec:
-      - {node: server, cmd: "pkill -f 'sshd -D' ; sleep 0.3; true"}
+      - {node: server, cmd: "pkill -f '[s]shd -D' ; sleep 0.3; true"}
       - {node: server, detach: true,
          cmd: "/usr/local/sbin/sshd -D -e -f /pqcw/sshd_config -o HostKeyAlgorithms=${pq_alg} -o PubkeyAcceptedAlgorithms=${pq_alg} > /tmp/sshd.log 2>&1"}
   - id: sshd-ready
@@ -68,7 +68,7 @@ cleanup:
   - id: stop-sshd
     title: Stop sshd
     exec:
-      - {node: server, cmd: "pkill -f 'sshd -D'; true"}
+      - {node: server, cmd: "pkill -f '[s]shd -D'; true"}
 assertions:
   - {id: kex-wire, kind: ssh.negotiated_kex, expect: {kex: mlkem768x25519-sha256}}
   - {id: hostkey-wire, kind: ssh.negotiated_host_key, expect: {contains: mldsa},

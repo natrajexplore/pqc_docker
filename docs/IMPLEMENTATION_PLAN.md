@@ -64,7 +64,7 @@ For each stack (`ipsec-auth`, `tls`, `ssh`, `macsec`):
 - [ ] Tighten loose regexes (`(?i)ml[-_ ]?dsa[-_ ]?65`) to the real output.
 - [ ] Record observed numbers in `expected_numbers`.
 - [ ] Add one golden fixture per protocol.
-- [ ] TLS: confirm the key-log decryption path produces ML-DSA OIDs in
+- [x] TLS: confirm the key-log decryption path produces ML-DSA OIDs in
       `metrics.protocol.tls.decrypted` for `tls-auth-mldsa65-mtls`.
 - [ ] MACsec: confirm 14 vs ~42 EAPOL frames (upstream numbers).
 

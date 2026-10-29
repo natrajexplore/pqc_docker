@@ -94,6 +94,20 @@ evidence because IKE_AUTH is encrypted; see [evidence levels](#evidence-levels-w
 Every one of these runs also passed its data-plane check: three pings become six
 ESP packets and no cleartext ICMP crosses the wire.
 
+### TLS 1.3 (OpenSSL 3.5.7)
+
+| Scenario | Key share (client / server) | Certificate messages | KEX verdict | Auth verdict |
+|---|---|---|---|---|
+| Classical x25519 | 32 B / 32 B | ECDSA 527 B | classical (wire) | classical (wire) |
+| Hybrid X25519MLKEM768 | 1,216 B / 1,120 B | ECDSA 527 B | pq-hybrid (wire) | classical (wire) |
+| ECDSA mutual TLS | 1,216 B / 1,120 B | ECDSA 527 B + 488 B | pq-hybrid (wire) | classical (wire) |
+| ML-DSA-65 mutual TLS | 1,216 B / 1,120 B | **ML-DSA-65 5,652 B + 5,614 B** | pq-hybrid (wire) | **pq ML-DSA-65 (wire)** |
+
+Unlike IKEv2, hybrid ML-KEM adds **no round trip** in TLS: the larger key shares
+ride in the same ClientHello and ServerHello. ML-DSA-65 makes each Certificate
+message about 11x larger. TLS authentication counts as *wire* evidence here because
+the lab key log lets the analyzer decrypt TLS 1.3's encrypted Certificate message.
+
 ---
 
 ## Scenarios
@@ -345,7 +359,7 @@ make smoke       # every available scenario through the real API
 | Scaffold, analyzer, orchestrator, UI, offline tests | done |
 | 1 - stacks up (mgmt + IPsec), socket proxy pinned, capture fields verified | done |
 | 2 - IPsec key exchange and authentication on real containers | done: 7/7 scenarios pass, numbers recorded, golden fixtures added |
-| 3 - calibrate TLS, SSH, MACsec | next |
+| 3 - calibrate TLS, SSH, MACsec | in progress: TLS done (4/4 pass, key-log decryption verified); SSH and MACsec next |
 | 4 - demo polish (presenter mode, ladder export) | planned |
 | 5 - real Cisco gear (EPC import, C8000 compare) | optional |
 

@@ -34,7 +34,7 @@ steps:
   - id: server
     title: Start openssl s_server (hybrid first, x25519 fallback)
     exec:
-      - {node: server, cmd: "pkill -f 'openssl s_server' ; sleep 0.3; true"}
+      - {node: server, cmd: "pkill -f '[o]penssl s_server' ; sleep 0.3; true"}
       - {node: server, detach: true,
          cmd: "openssl s_server -accept 172.32.0.2:4433 -www -tls1_3 -groups X25519MLKEM768:x25519 -cert /pki/active/server.crt -key /pki/active/server.key > /tmp/s_server.log 2>&1"}
   - id: server-ready
@@ -64,7 +64,7 @@ cleanup:
   - id: stop-server
     title: Stop s_server
     exec:
-      - {node: server, cmd: "pkill -f 'openssl s_server'; true"}
+      - {node: server, cmd: "pkill -f '[o]penssl s_server'; true"}
 assertions:
   - {id: offered, kind: tls.client_offers_group, expect: {group: X25519MLKEM768}}
   - {id: group, kind: tls.server_group, expect: {group: X25519MLKEM768},
@@ -76,3 +76,8 @@ expected_numbers:
   client_key_share_bytes: 1216
   server_key_share_bytes: 1120
   extra_round_trips: 0
+  observed: "2026-10-29, OpenSSL 3.5.7, Wireshark 4.4; key share / certificate sizes are exact, frame bytes depend on TCP segmentation (veth GRO coalesces segments above MTU)"
+  client_key_share_bytes_observed: 1216
+  server_key_share_bytes_observed: 1120
+  hello_frames_bytes: 3553
+  bytes_vs_classical: 2.8
